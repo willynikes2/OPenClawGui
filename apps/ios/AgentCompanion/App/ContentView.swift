@@ -17,13 +17,13 @@ struct ContentView: View {
                 }
                 .tag(Tab.inbox)
 
-            ControlTab()
+            ControlView()
                 .tabItem {
                     Label("Control", systemImage: "slider.horizontal.3")
                 }
                 .tag(Tab.control)
 
-            SecurityTab()
+            SecurityView()
                 .tabItem {
                     Label("Security", systemImage: "shield.fill")
                 }
@@ -51,38 +51,6 @@ struct ContentView: View {
 
 enum Tab: Hashable {
     case inbox, control, security, settings
-}
-
-// MARK: - Control Tab (placeholder — Milestone 5)
-
-struct ControlTab: View {
-    var body: some View {
-        NavigationStack {
-            EmptyStateView(
-                icon: "slider.horizontal.3",
-                title: "Control Center",
-                description: "Connect an instance to manage your agents.",
-                actionTitle: "Add Instance",
-                action: {}
-            )
-            .navigationTitle("Control")
-        }
-    }
-}
-
-// MARK: - Security Tab (placeholder — Milestone 4)
-
-struct SecurityTab: View {
-    var body: some View {
-        NavigationStack {
-            EmptyStateView(
-                icon: "shield",
-                title: "All Clear",
-                description: "No security alerts. Your agents are behaving normally."
-            )
-            .navigationTitle("Security")
-        }
-    }
 }
 
 // MARK: - Settings Tab
