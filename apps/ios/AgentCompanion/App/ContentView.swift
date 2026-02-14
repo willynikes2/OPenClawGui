@@ -3,12 +3,15 @@ import SwiftUI
 /// Root view with 4-tab navigation per spec:
 /// Inbox, Control, Security, Settings.
 /// SF Symbols for tab icons, labels visible.
+/// Shows onboarding modal if user has not completed setup.
 struct ContentView: View {
     @State private var selectedTab: Tab = .inbox
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var showOnboarding = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            InboxTab()
+            InboxView()
                 .tabItem {
                     Label("Inbox", systemImage: "tray.fill")
                 }
@@ -32,6 +35,17 @@ struct ContentView: View {
                 }
                 .tag(Tab.settings)
         }
+        .onAppear {
+            if !hasCompletedOnboarding {
+                showOnboarding = true
+            }
+        }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView()
+                .onDisappear {
+                    hasCompletedOnboarding = true
+                }
+        }
     }
 }
 
@@ -39,22 +53,7 @@ enum Tab: Hashable {
     case inbox, control, security, settings
 }
 
-// MARK: - Placeholder Tab Views
-
-struct InboxTab: View {
-    var body: some View {
-        NavigationStack {
-            EmptyStateView(
-                icon: "tray",
-                title: "No Events Yet",
-                description: "Once your Claw instance starts sending events, they will appear here.",
-                actionTitle: "Send Test Event",
-                action: {}
-            )
-            .navigationTitle("Inbox")
-        }
-    }
-}
+// MARK: - Control Tab (placeholder — Milestone 5)
 
 struct ControlTab: View {
     var body: some View {
@@ -71,19 +70,22 @@ struct ControlTab: View {
     }
 }
 
+// MARK: - Security Tab (placeholder — Milestone 4)
+
 struct SecurityTab: View {
     var body: some View {
         NavigationStack {
             EmptyStateView(
                 icon: "shield",
                 title: "All Clear",
-                description: "No security alerts. Your agents are behaving normally.",
-                action: nil
+                description: "No security alerts. Your agents are behaving normally."
             )
             .navigationTitle("Security")
         }
     }
 }
+
+// MARK: - Settings Tab
 
 struct SettingsTab: View {
     var body: some View {
