@@ -1,0 +1,516 @@
+Claude Build Sheet — AgentCompanion (OpenClaw/Clawdbot Mobile GUI + Monitoring + Output Inbox)
+Goal
+
+Build a mobile companion (starting with iOS, extensible to Android + Web) that connects to a user’s OpenClaw/Clawdbot deployment to:
+
+View and store agent outputs in a native UI (instead of Telegram/Discord)
+
+Remote control / monitor agents (start/stop runs, pause schedules, kill switch)
+
+Provide a security monitoring layer (“agent antivirus”) that detects abnormal behavior (ex: suspicious domains, unexpected shell exec, sensitive path access), with alerts + containment
+
+Provide high-end UI/UX, voice readouts, widgets, and a polished “Control Center” experience
+
+Privacy-first: protect PII and user data; minimize data collection; encrypt everything; secure multi-device sync
+
+1) Product Scope
+MVP (must ship first)
+
+Mobile app (iOS-first) with:
+
+Auth + device pairing
+
+“Inbox” feed of agent outputs
+
+Output detail view (pretty cards + raw)
+
+Search + tags + pin/share/export
+
+Push notifications
+
+Basic “Control” (stop run, pause all, disable skill)
+
+Security alerts (top 5 detectors)
+
+Local caching + offline view
+
+Local integration:
+
+Connect to OpenClaw Gateway if available OR
+
+Telegram bridge fallback OR
+
+Webhook ingestion (skill posts JSON)
+
+Backend (minimal):
+
+Device/account management
+
+Webhook ingest endpoint
+
+Storage (encrypted)
+
+Push notification router
+
+Policy/allowlist service (optional MVP-lite)
+
+V2
+
+Full remote control: run skill, cancel run, view active sessions
+
+Widgets (daily brief)
+
+Voice TTS readout + customizable voices
+
+Dashboard charts
+
+Skill trust scoring, audit trail
+
+Multi-machine support
+
+2) Architecture (Recommended)
+Components
+
+Mobile App
+
+Native iOS (SwiftUI) preferred for best UX, widgets, and performance
+
+Android can follow later (Kotlin/Compose or React Native if you prefer cross-platform)
+
+Companion Backend (thin)
+
+API for auth, device pairing, event ingest, event query
+
+Push notification service
+
+Storage + search index
+
+Policy engine (basic allowlist rules)
+
+Integration Layer
+Pick one or support multiple:
+
+A) Direct Gateway Client (best, if OpenClaw Gateway is reachable)
+
+App connects to Gateway via secure tunnel (Tailscale or SSH port forward)
+
+Use Gateway JSON endpoints (health/status/etc) for monitoring + RPC where available
+
+B) “Companion Bridge Skill” (marketplace install)
+
+A skill that runs inside OpenClaw/Clawdbot that:
+
+formats outputs into structured JSON
+
+POSTs to backend /ingest
+
+optionally accepts “commands” from backend (poll or websocket)
+
+C) Telegram/Discord Bridge (fallback)
+
+Agent posts to a bot/channel
+
+Backend listens and converts messages into events
+
+Local Sensor Daemon (software agent)
+
+Installed on same host as OpenClaw
+
+Watches: process exec, network destinations, sensitive file path access, runaway loops
+
+Sends telemetry events to backend (or directly to app if using VPN)
+
+MVP strategy: Ship B + backend + iOS first (fast, reliable). Add sensor daemon next.
+
+3) Security & Privacy Requirements (Non-Negotiable)
+Data classification
+
+PII: emails, names, addresses, phone, payment info, calendar events, message bodies, identifiers
+
+Sensitive: tokens, credentials, API keys, OAuth refresh tokens
+
+Telemetry: domains contacted, process names, file paths (not contents), timestamps, counts
+
+Data minimization defaults
+
+Store structured summaries; keep raw text optional
+
+Don’t store file contents, email contents, or secrets by default
+
+Keep only metadata unless user opts into full capture
+
+Provide “Private Mode” where events never leave local device (future)
+
+Encryption
+
+In transit: TLS everywhere
+
+At rest (backend): envelope encryption per user (KMS)
+
+On device: Keychain + encrypted local database
+
+Push notifications: never include sensitive content; use “You have a new agent update” then fetch inside app
+
+Access control
+
+Auth: email/password + OAuth optional, enforce MFA later
+
+Sessions: short-lived access tokens, refresh tokens secure
+
+Per-device trust: user can revoke device
+
+Principle of least privilege: integration tokens scoped per machine + per skill
+
+Telemetry redaction
+
+Redact emails, phone numbers, addresses by default in logs
+
+Redact tokens/keys using regex scanners
+
+Add a “PII scrubber” pipeline before persistence
+
+Threat model (must address)
+
+Malicious skill tries to exfiltrate data
+
+Attacker intercepts telemetry or command channel
+
+Rogue device pairs to account
+
+Push notification leaks PII
+
+Backend breach exposes stored outputs
+
+User mistakenly installs malicious marketplace skill
+
+Containment controls (MVP)
+
+Kill switch: pause all schedules / disable output routing / revoke integration token
+
+Skill allowlist: only allow configured skills to send events
+
+Domain allowlist/denylist for outgoing posts (sensor helps)
+
+4) “Agent Antivirus” Detectors (MVP set)
+
+Implement these first (high signal, low complexity):
+
+New domain contacted (first-seen domain)
+
+Shell spawned (bash/zsh/powershell/cmd/python invoked unexpectedly)
+
+Sensitive path access (ssh keys, browser profiles, crypto wallet dirs)
+
+High-frequency loop (same action repeated rapidly)
+
+Unexpected secret pattern in output/logs (API keys, JWTs)
+
+Each detector yields:
+
+severity (info/warn/critical)
+
+explanation
+
+recommended action (disable skill / pause / investigate)
+
+one-tap containment button
+
+5) UX / UI Design Standards (Expert Level)
+Principles
+
+“Control Center” feel: clear status, quick actions, minimal clutter
+
+Progressive disclosure: simple feed first, details on tap
+
+Accessibility-first: Dynamic Type, VoiceOver, high contrast, reduced motion
+
+HIG-compliant interactions: navigation, sheets, tabs, haptics
+
+Delight without gimmicks: subtle animations, clear hierarchy, strong typography
+
+Core Screens (MVP)
+
+Onboarding + Pairing
+
+“Add your Claw instance”
+
+QR pairing or token paste
+
+Connectivity test
+
+Privacy explanation (what is collected, toggle options)
+
+Home / Inbox
+
+Timeline of events (cards)
+
+Filters: agent, skill, severity, tags
+
+Search bar (instant)
+
+Quick summary header (optional)
+
+Event Detail
+
+Pretty render + raw view toggle
+
+“Read aloud” button
+
+Save/export/share actions
+
+Metadata: source instance, skill, time, detector alerts
+
+Control
+
+System health
+
+Active runs (if available)
+
+Kill switch
+
+Pause schedules
+
+Disable skill
+
+Security
+
+Alerts feed
+
+Detectors overview
+
+Trusted vs Untrusted skills list
+
+“Last 24h anomalies” summary
+
+Settings
+
+Data retention (7/30/90/unlimited)
+
+Redaction toggles
+
+Quiet hours
+
+Notification categories
+
+Device management
+
+UI Components
+
+Card system with consistent spacing
+
+Severity badges (text + icon)
+
+“Primary actions” always visible (Stop, Pause, Disable)
+
+Skeleton loading states
+
+Empty states that teach
+
+6) Technical Stack Recommendation
+Backend (fast, secure)
+
+FastAPI or Node (your choice)
+
+Postgres (Supabase is fine)
+
+Redis optional for queues
+
+Push: APNs (and FCM later)
+
+iOS
+
+SwiftUI
+
+Local persistence: SQLite/CoreData (or Realm) with encryption
+
+Search indexing (basic text search OK MVP)
+
+Sensor daemon (later)
+
+Go or Rust preferred
+
+Collect:
+
+process exec events
+
+outbound destination metadata
+
+sensitive file path access events (high-level)
+
+Run as:
+
+macOS LaunchAgent
+
+Linux systemd service
+
+7) Data Model (Backend)
+Entities
+
+User
+
+Device
+
+Instance (a “Claw deployment”)
+
+IntegrationToken (scoped)
+
+Event (agent output)
+
+Alert (security detector output)
+
+Skill (declared + observed)
+
+Event schema (minimum)
+
+id
+
+user_id
+
+instance_id
+
+source_type: gateway|skill|telegram|sensor
+
+agent_name
+
+skill_name
+
+timestamp
+
+title
+
+body_raw (optional)
+
+body_structured_json (optional)
+
+tags[]
+
+severity (info/warn/critical)
+
+pii_redacted: boolean
+
+hash/signature (integrity)
+
+8) Integrity / Authenticity (Important)
+
+To prevent spoofed events:
+
+Each instance has a shared secret
+
+Events include HMAC signature:
+
+HMAC(secret, timestamp + payload)
+
+Backend verifies signature and rejects invalid events
+
+Rotate secrets + revoke tokens
+
+9) Build Plan & Milestones
+Milestone 0 — Repo scaffolding (Day 1)
+
+Monorepo layout:
+
+/apps/ios
+
+/backend
+
+/bridge-skill
+
+/docs
+
+CI: lint + unit tests
+
+Milestone 1 — Backend MVP
+
+Auth (email/pass + JWT)
+
+Instance creation + token
+
+/ingest endpoint with HMAC
+
+Store events
+
+Query events (pagination + filters)
+
+PII scrubber middleware
+
+APNs push pipeline (silent push + fetch)
+
+Milestone 2 — iOS MVP
+
+Onboarding + pairing
+
+Inbox feed (pagination)
+
+Detail view (structured + raw)
+
+Search + filters
+
+Offline cache
+
+Push notifications -> open event
+
+Milestone 3 — Bridge Skill MVP
+
+Minimal install instructions
+
+Sends daily summary output as JSON
+
+Handles multiple skills by wrapping outputs into Event schema
+
+Milestone 4 — Security MVP
+
+Detectors 1–5 running on backend events + sensor events (when available)
+
+Alerts UI + containment buttons (backend endpoints)
+
+Milestone 5 — Control Surface MVP
+
+“Kill switch” endpoints:
+
+revoke integration token
+
+set instance to paused (ingest rejected)
+
+optional: command channel to bridge skill (polling)
+
+Milestone 6 — Premium UX polish
+
+Animations, haptics, typography scale
+
+Accessibility audit
+
+Widget v1
+
+TTS readout
+
+10) Acceptance Criteria (MVP)
+
+User can install bridge skill, pair app, see outputs in inbox
+
+Outputs are stored, searchable, and available offline
+
+No PII in push payloads
+
+HMAC signed ingest prevents spoofing
+
+Detectors flag obvious bad patterns
+
+Kill switch stops new data ingest immediately
+
+UI feels native, clean, and fast
+
+11) Deliverables Claude Must Produce
+
+Full repo scaffold with README + docs
+
+Backend service with endpoints + DB migrations
+
+Bridge skill template + install instructions
+
+iOS SwiftUI app implementing screens above
+
+Security detector service + alerting
+
+Threat model + security checklist
+
+Test plan (unit + integration)

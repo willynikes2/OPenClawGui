@@ -1,0 +1,542 @@
+Claude UI/UX Build Sheet — AgentCompanion (iOS-first, Premium Control Center UI)
+Objective
+
+Design and implement an expert-level native mobile UI for AgentCompanion: an inbox + dashboard + remote control + security monitor for OpenClaw/Clawdbot. UX must feel like a polished Apple-first product (Control Center + Mail + Activity Monitor vibes), with high accessibility, clean hierarchy, and fast navigation.
+
+Non-negotiables
+
+iOS Human Interface Guidelines alignment
+
+Accessibility-first: VoiceOver, Dynamic Type, contrast, reduce motion
+
+Progressive disclosure (simple default, deeper detail on demand)
+
+Trust and security clarity (clear permissions, redaction, “what’s collected” transparency)
+
+No clutter: “status → action → detail” structure everywhere
+
+1) Navigation & Information Architecture
+Primary navigation (Tab Bar, 4 tabs)
+
+Inbox
+
+Control
+
+Security
+
+Settings
+
+Use native TabView + SF Symbols, labels visible.
+
+Secondary navigation
+
+Inbox item → Event Detail
+
+Security alert → Alert Detail
+
+Instance selection → top-level instance picker (sheet)
+
+Add instance → onboarding flow (modal)
+
+Always keep user oriented:
+
+“Instance” context visible (top pill or title subtitle)
+
+Severity indicators visible where relevant
+
+2) Visual System
+Spacing (8pt grid)
+
+Define constants:
+
+Space.xs = 4
+
+Space.sm = 8
+
+Space.md = 12
+
+Space.lg = 16
+
+Space.xl = 24
+
+Space.2xl = 32
+
+Corner radius
+
+Cards: 16
+
+Pills: 999 (capsule)
+
+Buttons: 12
+
+Sheets: system default
+
+Elevation / Materials
+
+Use iOS materials and subtle shadows:
+
+Primary cards: Material.ultraThin or Material.thin backgrounds
+
+Avoid heavy drop shadows; use 1–2 subtle elevations max
+
+Use separators and whitespace more than borders
+
+Typography (Dynamic Type friendly)
+
+Titles: .title2 or .headline
+
+Card header: .headline
+
+Card subtext: .subheadline
+
+Metadata: .caption / .caption2
+
+Body: .body
+
+No fixed font sizes. Must scale with Dynamic Type.
+
+Color rules
+
+Use system colors (.primary, .secondary, .tertiary)
+
+Severity uses semantic system colors (not hardcoded)
+
+Dark mode must look intentional (no washed-out cards)
+
+3) Core Components (Design Tokens + Behavior)
+3.1 “Card” component (universal)
+
+Used for events, alerts, status blocks.
+
+Structure
+
+Leading icon (SF Symbol)
+
+Title (1–2 lines)
+
+Subtitle (1–3 lines)
+
+Optional chips row (skill, agent, severity)
+
+Trailing time (relative)
+
+Tap → Detail
+
+Long press → Quick actions
+
+States
+
+Normal
+
+Unread (bold title, small dot)
+
+Critical (subtle tinted background + badge)
+
+Loading (skeleton)
+
+Empty (illustration + CTA)
+
+3.2 Severity Badge
+
+Pill-shaped capsule with icon + text:
+
+Info: “Info”
+
+Warning: “Warning”
+
+Critical: “Critical”
+
+Rules:
+
+Always paired with text, not color-only.
+
+Accessible labels for VoiceOver (“Critical alert”)
+
+3.3 Instance Selector (top pill)
+
+At top of Inbox/Control/Security:
+
+Shows current instance name
+
+Tap opens sheet list
+
+Shows status dot (green/amber/red)
+
+Sheet list shows:
+
+Instance name
+
+Last seen timestamp
+
+Health status
+
+“Manage” action
+
+3.4 Primary Actions Bar
+
+On Control and Alert Detail, show primary actions as sticky bottom bar:
+
+“Stop Run”
+
+“Pause Instance”
+
+“Disable Skill”
+
+“Kill Switch”
+Use confirmation sheet for destructive actions.
+
+4) Screen Specs
+4.1 Onboarding & Pairing
+
+Goal: make trust + privacy clear.
+
+Steps
+
+Welcome
+
+Value props: “Monitor”, “Control”, “Secure”, “Read out loud”
+
+CTA: “Add your Claw Instance”
+
+Pairing method selection
+
+“Scan QR”
+
+“Paste Token”
+
+“Use Telegram Bridge (fallback)”
+
+Privacy explainer (must show)
+
+What’s collected: event titles, summaries, domains, process names, timestamps
+
+What’s not collected by default: full email bodies, file contents, passwords
+
+Toggles:
+
+Store raw output (off by default)
+
+Store telemetry (on by default)
+
+Redact PII (on by default, cannot fully disable without warning)
+
+Connectivity test
+
+Show progress with step list
+
+Success state: confetti subtle (optional), then “Go to Inbox”
+
+UI quality
+
+Large, calm screens
+
+Minimal text; “Learn more” expands
+
+4.2 Inbox (Home)
+
+This must feel like “Mail + Notifications for agents”.
+
+Layout
+
+Top:
+
+Instance selector pill (left)
+
+Search button (right) OR search bar inline
+
+Below:
+
+Filter chips row (horizontal scroll):
+
+All / Critical / Warnings / Summaries / Tasks
+
+By skill (dynamic)
+
+By agent (dynamic)
+
+Main:
+
+Event card list (infinite scroll)
+
+Pull to refresh
+
+“New items” floating pill appears if user scrolled
+
+Card render rules
+
+If structured JSON exists:
+
+Render as rich cards (Weather, Agenda, KPI, etc.)
+Else:
+
+Show title + body preview, and “Raw” icon
+
+Empty state:
+
+“No events yet”
+
+CTA: “Test connection” / “Send test event”
+
+4.3 Event Detail
+
+This is the “premium reader” screen.
+
+Sections
+
+Header
+
+Title
+
+Source chips: instance, agent, skill
+
+Severity badge
+
+Timestamp
+
+Content
+
+Rich view (default)
+
+Toggle: “Raw output”
+
+Copy button for raw
+
+“Read aloud” button (TTS)
+
+Security panel (if any alerts triggered)
+
+“This event triggered: New domain, Shell spawn…”
+
+Tap → Alert detail
+
+Actions
+
+Pin
+
+Tag
+
+Share
+
+Export (Notes/Files)
+
+4.4 Control Tab
+
+This should feel like “Control Center”.
+
+Sections (cards)
+
+System Status
+
+Health: OK / Degraded / Offline
+
+Last seen
+
+Current mode: Active / Paused / Safe Mode
+
+Active Runs (if supported)
+
+List with progress bars
+
+Tap for details
+
+Stop button inline
+
+Quick Actions
+
+Pause instance
+
+Resume
+
+Kill switch (destructive)
+
+Test run (non-destructive)
+
+Routing
+
+Output destinations toggles:
+
+In-app inbox
+
+Telegram
+
+Email
+
+“Structured mode” toggle
+
+Interaction
+
+Every destructive action uses confirmation sheet + “Why this matters”.
+
+4.5 Security Tab
+
+This is your “trust center” — simple, not scary.
+
+Sections
+
+Today’s Risk Summary (top)
+
+Big number: Alerts today
+
+“Most common detector”
+
+“Last critical” timestamp
+
+Alerts list
+
+Filter chips: All / Critical / Warning
+
+Cards with detector name, explanation snippet, action
+
+Skill Trust List (v1)
+
+Trusted skills (allowlisted)
+
+Untrusted / unknown
+
+Each item shows:
+
+last run
+
+observed behaviors
+
+“Disable” / “Allowlist”
+
+Detector Settings (v1)
+
+Toggles per detector (some must remain on)
+
+Sensitivity slider (simple: Low/Med/High)
+
+4.6 Settings
+Sections
+
+Account + devices
+
+Instances (manage)
+
+Privacy & retention
+
+Notifications
+
+Voice & playback
+
+Advanced (logs export)
+
+Privacy settings include:
+
+Data retention options
+
+Redaction controls (with warnings)
+
+Export + delete data controls
+
+5) Microinteractions & Motion
+Rules
+
+Motion should clarify state, not entertain.
+
+Support Reduce Motion setting.
+
+Use haptics sparingly:
+
+success: light
+
+warning: medium
+
+destructive: heavy
+
+Animations to include
+
+Card insertion animation (subtle)
+
+Severity badge appearance
+
+“New items” pill slide-in
+
+Loading skeleton shimmer (optional, subtle)
+
+6) Accessibility Checklist (must implement)
+
+Dynamic Type: no truncation-based UI break
+
+VoiceOver labels for:
+
+severity
+
+action buttons
+
+chips
+
+cards (“Event from Skill X at 9:12 AM”)
+
+Contrast meets WCAG AA
+
+Touch targets >= 44x44
+
+Avoid color-only encoding; always add icons/text
+
+7) UI Implementation Requirements (SwiftUI)
+
+Claude must:
+
+Build a Design System module:
+
+Spacing, Radii, Typography, Shadows, Icon
+
+Build reusable components:
+
+AgentCardView
+
+SeverityBadge
+
+InstancePicker
+
+PrimaryActionBar
+
+EmptyStateView
+
+SkeletonCardView
+
+Avoid:
+
+Hardcoded colors
+
+Fixed font sizes
+
+Custom gestures that fight iOS norms
+
+Must include:
+
+Dark mode
+
+Localization-ready strings
+
+Proper state handling: loading/empty/error/success
+
+8) “Premium Feel” Requirements
+
+Consistent spacing and alignment
+
+No jumpy layout on load
+
+Skeleton states everywhere
+
+Error states are helpful and actionable
+
+Copywriting is minimal, confident, non-technical
+
+Security warnings are clear but not alarmist (“We noticed unusual behavior…”)
+
+9) Deliverables
+
+Claude should output:
+
+SwiftUI app screens above with design system
+
+Component library (reusable)
+
+Sample JSON → rich card renderer (Weather, Agenda, KPI)
+
+Accessibility pass notes
+
+UI test plan (snapshot tests optional)
