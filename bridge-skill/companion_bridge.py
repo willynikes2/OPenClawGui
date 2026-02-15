@@ -33,6 +33,7 @@ import hashlib
 import hmac as hmac_mod
 import json
 import logging
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -97,6 +98,7 @@ class BridgeConfig:
         self.default_source_type: str = raw.get("default_source_type", "skill")
         self.timeout: int = raw.get("timeout", 10)
         self.retries: int = raw.get("retries", 2)
+        self.poll_interval: int = raw.get("poll_interval", 10)
 
         if not self.backend_url:
             raise ConfigError("backend_url is required in config")
@@ -218,21 +220,140 @@ class CompanionBridge:
         return decorator
 
     # ------------------------------------------------------------------
+    # Command Channel — poll for pending commands from backend
+    # ------------------------------------------------------------------
+
+    def poll_commands(self) -> list[dict]:
+        """Poll the backend for pending commands. Returns list of command dicts.
+
+        Each command has: id, command_type, payload, status, created_at, etc.
+        """
+        url = (
+            f"{self.config.backend_url}/instances/"
+            f"{self.config.instance_id}/commands/pending"
+        )
+        headers = self._hmac_headers("")
+
+        try:
+            resp = self._client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("commands", [])
+            logger.warning("Poll commands failed: %d %s", resp.status_code, resp.text)
+        except httpx.HTTPError as exc:
+            logger.warning("Poll commands HTTP error: %s", exc)
+
+        return []
+
+    def acknowledge_command(
+        self,
+        command_id: str,
+        status: str = "completed",
+        result_message: str | None = None,
+    ) -> dict | None:
+        """Acknowledge a command back to the backend.
+
+        Args:
+            command_id: UUID of the command.
+            status: One of "acknowledged", "completed", "failed".
+            result_message: Optional message describing the result.
+        """
+        url = (
+            f"{self.config.backend_url}/instances/"
+            f"{self.config.instance_id}/commands/{command_id}/ack"
+        )
+        body = {"status": status}
+        if result_message:
+            body["result_message"] = result_message
+
+        headers = self._hmac_headers("")
+        headers["Content-Type"] = "application/json"
+
+        try:
+            resp = self._client.post(url, json=body, headers=headers)
+            if resp.status_code == 200:
+                logger.info("Command %s acknowledged as %s", command_id, status)
+                return resp.json()
+            logger.warning("Ack command failed: %d %s", resp.status_code, resp.text)
+        except httpx.HTTPError as exc:
+            logger.warning("Ack command HTTP error: %s", exc)
+
+        return None
+
+    def start_polling(
+        self,
+        interval: int = 10,
+        handler: Callable[[dict], str | None] | None = None,
+    ) -> threading.Event:
+        """Start a background thread that polls for commands.
+
+        Args:
+            interval: Seconds between polls (default 10).
+            handler: Callback ``fn(command) -> result_message``.
+                Called for each pending command. If None, commands are
+                logged and auto-acknowledged.
+
+        Returns:
+            A ``threading.Event`` — call ``.set()`` to stop the polling loop.
+        """
+        stop_event = threading.Event()
+
+        def _default_handler(cmd: dict) -> str | None:
+            cmd_type = cmd.get("command_type", "unknown")
+            logger.info("Received command: %s (id=%s)", cmd_type, cmd.get("id"))
+            return f"Auto-acknowledged: {cmd_type}"
+
+        actual_handler = handler or _default_handler
+
+        def _poll_loop() -> None:
+            logger.info("Command polling started (interval=%ds)", interval)
+            while not stop_event.is_set():
+                try:
+                    commands = self.poll_commands()
+                    for cmd in commands:
+                        cmd_id = cmd.get("id")
+                        if not cmd_id:
+                            continue
+                        try:
+                            result_msg = actual_handler(cmd)
+                            self.acknowledge_command(
+                                cmd_id, status="completed", result_message=result_msg,
+                            )
+                        except Exception as exc:
+                            logger.error("Command handler error for %s: %s", cmd_id, exc)
+                            self.acknowledge_command(
+                                cmd_id, status="failed", result_message=str(exc),
+                            )
+                except Exception as exc:
+                    logger.error("Poll loop error: %s", exc)
+
+                stop_event.wait(interval)
+
+            logger.info("Command polling stopped")
+
+        thread = threading.Thread(target=_poll_loop, daemon=True, name="bridge-poll")
+        thread.start()
+        return stop_event
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
-    def _post(self, payload: dict) -> dict:
-        """Sign and POST the payload with retries."""
-        payload_str = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    def _hmac_headers(self, payload: str = "") -> dict[str, str]:
+        """Build HMAC authentication headers."""
         unix_ts = str(int(time.time()))
-        signature = compute_hmac(self.config.instance_secret, unix_ts, payload_str)
-
-        headers = {
-            "Content-Type": "application/json",
+        signature = compute_hmac(self.config.instance_secret, unix_ts, payload)
+        return {
             "X-Signature": signature,
             "X-Timestamp": unix_ts,
             "X-Instance-Id": self.config.instance_id,
         }
+
+    def _post(self, payload: dict) -> dict:
+        """Sign and POST the payload with retries."""
+        payload_str = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        headers = self._hmac_headers(payload_str)
+        headers["Content-Type"] = "application/json"
 
         url = f"{self.config.backend_url}/ingest"
         last_error: Exception | None = None

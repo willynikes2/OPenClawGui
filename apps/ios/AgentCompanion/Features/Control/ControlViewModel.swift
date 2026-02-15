@@ -3,6 +3,7 @@ import SwiftUI
 
 /// View model for the Control tab.
 /// Manages instance status, active runs, quick actions, and routing toggles.
+/// Wired to real API endpoints for pause/resume/kill-switch/commands.
 @MainActor
 final class ControlViewModel: ObservableObject {
 
@@ -16,6 +17,10 @@ final class ControlViewModel: ObservableObject {
 
     @Published var activeRuns: [ActiveRun] = []
 
+    // MARK: - Commands
+
+    @Published var recentCommands: [CommandResponse] = []
+
     // MARK: - Routing Toggles
 
     @Published var routeToInbox: Bool = true
@@ -26,6 +31,12 @@ final class ControlViewModel: ObservableObject {
     // MARK: - Confirmation State
 
     @Published var pendingAction: ConfirmableAction? = nil
+
+    // MARK: - Action In Progress
+
+    @Published var actionInProgress: Bool = false
+    @Published var actionError: String? = nil
+    @Published var actionSuccess: String? = nil
 
     enum LoadState {
         case idle, loading, loaded, error(String)
@@ -88,9 +99,38 @@ final class ControlViewModel: ObservableObject {
             if selectedInstance == nil {
                 selectedInstance = instances.first
             }
+            // Refresh selected instance from server
+            if let selected = selectedInstance {
+                await refreshInstance(selected.id)
+            }
+            // Load recent commands
+            await loadRecentCommands()
             loadState = .loaded
         } catch {
             loadState = .error(error.localizedDescription)
+        }
+    }
+
+    func refreshInstance(_ id: UUID) async {
+        do {
+            let fresh = try await APIService.shared.fetchInstanceDetail(instanceID: id)
+            if let index = instances.firstIndex(where: { $0.id == id }) {
+                instances[index] = fresh
+            }
+            if selectedInstance?.id == id {
+                selectedInstance = fresh
+            }
+        } catch {
+            // Use stale data on refresh failure
+        }
+    }
+
+    func loadRecentCommands() async {
+        guard let instanceID = selectedInstance?.id else { return }
+        do {
+            recentCommands = try await APIService.shared.fetchCommands(instanceID: instanceID)
+        } catch {
+            // Silently fail — commands are supplementary
         }
     }
 
@@ -100,26 +140,33 @@ final class ControlViewModel: ObservableObject {
         pendingAction = .pause
     }
 
-    func resumeInstance() {
-        guard var instance = selectedInstance,
-              let index = instances.firstIndex(where: { $0.id == instance.id }) else { return }
-        // In production this calls the API; here we update locally
-        Haptics.success()
-        // Instance is a let-struct, so we rebuild
-        let resumed = Instance(
-            id: instance.id, name: instance.name, mode: .active,
-            health: instance.health, lastSeen: instance.lastSeen, createdAt: instance.createdAt
-        )
-        instances[index] = resumed
-        selectedInstance = resumed
+    func resumeInstance() async {
+        guard let instance = selectedInstance else { return }
+        actionInProgress = true
+        actionError = nil
+
+        do {
+            _ = try await APIService.shared.resumeInstance(instanceID: instance.id)
+            Haptics.success()
+            await refreshInstance(instance.id)
+            actionSuccess = "Instance resumed"
+        } catch {
+            actionError = error.localizedDescription
+        }
+
+        actionInProgress = false
+        clearSuccessAfterDelay()
     }
 
     func triggerKillSwitch() {
         pendingAction = .killSwitch
     }
 
-    func testRun() {
+    func testRun() async {
+        guard let instance = selectedInstance else { return }
         Haptics.success()
+
+        // Create a local active run for UI feedback
         let run = ActiveRun(
             id: UUID(),
             skillName: "connectivity_test",
@@ -129,6 +176,18 @@ final class ControlViewModel: ObservableObject {
             status: .running
         )
         activeRuns.insert(run, at: 0)
+
+        // Send test_run command via API
+        do {
+            _ = try await APIService.shared.sendCommand(
+                instanceID: instance.id,
+                commandType: "test_run",
+                reason: "user_action"
+            )
+        } catch {
+            // Test run is best-effort; still show local progress
+        }
+
         simulateProgress(for: run.id)
     }
 
@@ -138,37 +197,84 @@ final class ControlViewModel: ObservableObject {
 
     func confirmAction() {
         guard let action = pendingAction else { return }
-        switch action {
-        case .pause:
-            Haptics.warning()
-            updateSelectedInstanceMode(.paused)
-        case .killSwitch:
-            Haptics.destructive()
-            updateSelectedInstanceMode(.safe)
-        case .stopRun(let run):
-            Haptics.destructive()
-            if let index = activeRuns.firstIndex(where: { $0.id == run.id }) {
-                activeRuns[index].status = .stopping
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.activeRuns.removeAll { $0.id == run.id }
-                }
+        pendingAction = nil
+
+        Task {
+            switch action {
+            case .pause:
+                await performPause()
+            case .killSwitch:
+                await performKillSwitch()
+            case .stopRun(let run):
+                await performStopRun(run)
             }
         }
-        pendingAction = nil
+    }
+
+    // MARK: - API-Backed Actions
+
+    private func performPause() async {
+        guard let instance = selectedInstance else { return }
+        actionInProgress = true
+        actionError = nil
+
+        do {
+            _ = try await APIService.shared.pauseInstance(instanceID: instance.id)
+            Haptics.warning()
+            await refreshInstance(instance.id)
+            actionSuccess = "Instance paused"
+        } catch {
+            actionError = error.localizedDescription
+        }
+
+        actionInProgress = false
+        clearSuccessAfterDelay()
+    }
+
+    private func performKillSwitch() async {
+        guard let instance = selectedInstance else { return }
+        actionInProgress = true
+        actionError = nil
+
+        do {
+            _ = try await APIService.shared.killSwitch(instanceID: instance.id)
+            Haptics.destructive()
+            await refreshInstance(instance.id)
+            actionSuccess = "Kill switch activated"
+        } catch {
+            actionError = error.localizedDescription
+        }
+
+        actionInProgress = false
+        clearSuccessAfterDelay()
+    }
+
+    private func performStopRun(_ run: ActiveRun) async {
+        guard let instance = selectedInstance else { return }
+        Haptics.destructive()
+
+        if let index = activeRuns.firstIndex(where: { $0.id == run.id }) {
+            activeRuns[index].status = .stopping
+        }
+
+        // Send stop command via command channel
+        do {
+            _ = try await APIService.shared.sendCommand(
+                instanceID: instance.id,
+                commandType: "stop_run",
+                payload: ["skill_name": run.skillName],
+                reason: "user_action"
+            )
+        } catch {
+            // Best-effort
+        }
+
+        // Remove after a delay
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        activeRuns.removeAll { $0.id == run.id }
     }
 
     // MARK: - Helpers
-
-    private func updateSelectedInstanceMode(_ mode: InstanceMode) {
-        guard let instance = selectedInstance,
-              let index = instances.firstIndex(where: { $0.id == instance.id }) else { return }
-        let updated = Instance(
-            id: instance.id, name: instance.name, mode: mode,
-            health: instance.health, lastSeen: instance.lastSeen, createdAt: instance.createdAt
-        )
-        instances[index] = updated
-        selectedInstance = updated
-    }
 
     private func simulateProgress(for runID: UUID) {
         for step in 1...10 {
@@ -186,6 +292,13 @@ final class ControlViewModel: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    private func clearSuccessAfterDelay() {
+        guard actionSuccess != nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.actionSuccess = nil
         }
     }
 

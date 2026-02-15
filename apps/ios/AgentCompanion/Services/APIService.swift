@@ -12,6 +12,11 @@ final class APIService: ObservableObject {
         d.dateDecodingStrategy = .iso8601
         return d
     }()
+    private let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
 
     @Published var accessToken: String?
 
@@ -56,6 +61,97 @@ final class APIService: ObservableObject {
         return try await authenticatedRequest(url: url)
     }
 
+    func fetchInstanceDetail(instanceID: UUID) async throws -> Instance {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)")
+        return try await authenticatedRequest(url: url)
+    }
+
+    // MARK: - Containment (Control Tab)
+
+    func pauseInstance(instanceID: UUID, reason: String = "user_action") async throws -> ContainmentResponse {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/pause")
+        let body = ContainmentRequest(reason: reason)
+        return try await authenticatedPost(url: url, body: body)
+    }
+
+    func resumeInstance(instanceID: UUID) async throws -> ContainmentResponse {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/resume")
+        return try await authenticatedPost(url: url)
+    }
+
+    func killSwitch(instanceID: UUID, reason: String = "user_action") async throws -> ContainmentResponse {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/kill-switch")
+        let body = ContainmentRequest(reason: reason)
+        return try await authenticatedPost(url: url, body: body)
+    }
+
+    // MARK: - Commands (Control Tab)
+
+    func sendCommand(
+        instanceID: UUID,
+        commandType: String,
+        payload: [String: String]? = nil,
+        reason: String? = nil
+    ) async throws -> CommandResponse {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/commands")
+        let body = CommandCreateRequest(
+            commandType: commandType,
+            payload: payload,
+            reason: reason
+        )
+        return try await authenticatedPost(url: url, body: body)
+    }
+
+    func fetchCommands(instanceID: UUID, status: String? = nil) async throws -> [CommandResponse] {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/commands"),
+            resolvingAgainstBaseURL: false
+        )!
+        if let status {
+            components.queryItems = [.init(name: "status", value: status)]
+        }
+        return try await authenticatedRequest(url: components.url!)
+    }
+
+    // MARK: - Alerts (Security Tab)
+
+    func fetchAlerts(
+        instanceID: UUID,
+        severity: Severity? = nil,
+        detector: String? = nil,
+        limit: Int = 20,
+        cursor: String? = nil
+    ) async throws -> AlertListResponse {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/alerts"),
+            resolvingAgainstBaseURL: false
+        )!
+        var queryItems: [URLQueryItem] = [.init(name: "limit", value: String(limit))]
+        if let severity { queryItems.append(.init(name: "severity", value: severity.rawValue)) }
+        if let detector { queryItems.append(.init(name: "detector", value: detector)) }
+        if let cursor { queryItems.append(.init(name: "cursor", value: cursor)) }
+        components.queryItems = queryItems
+        return try await authenticatedRequest(url: components.url!)
+    }
+
+    func fetchRiskSummary(instanceID: UUID) async throws -> RiskSummaryResponse {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/risk-summary")
+        return try await authenticatedRequest(url: url)
+    }
+
+    // MARK: - Skills
+
+    func fetchSkills(instanceID: UUID) async throws -> [SkillAPIResponse] {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/skills")
+        return try await authenticatedRequest(url: url)
+    }
+
+    func disableSkill(instanceID: UUID, skillName: String, reason: String = "user_action") async throws -> ContainmentResponse {
+        let url = baseURL.appendingPathComponent("instances/\(instanceID.uuidString)/skills/\(skillName)/disable")
+        let body = ContainmentRequest(reason: reason)
+        return try await authenticatedPost(url: url, body: body)
+    }
+
     // MARK: - Networking
 
     private func authenticatedRequest<T: Decodable>(url: URL) async throws -> T {
@@ -78,6 +174,52 @@ final class APIService: ObservableObject {
 
         return try decoder.decode(T.self, from: data)
     }
+
+    private func authenticatedPost<T: Decodable>(url: URL, body: (any Encodable)? = nil) async throws -> T {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = accessToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let body {
+            request.httpBody = try encoder.encode(body)
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard (200...299).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw APIError.httpError(statusCode: http.statusCode, body: body)
+        }
+
+        return try decoder.decode(T.self, from: data)
+    }
+}
+
+// MARK: - Request Types
+
+struct ContainmentRequest: Codable {
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case reason
+    }
+}
+
+struct CommandCreateRequest: Codable {
+    let commandType: String
+    let payload: [String: String]?
+    let reason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case commandType = "command_type"
+        case payload, reason
+    }
 }
 
 // MARK: - Response Types
@@ -89,6 +231,114 @@ struct EventListResponse: Codable {
     enum CodingKeys: String, CodingKey {
         case events
         case nextCursor = "next_cursor"
+    }
+}
+
+struct ContainmentResponse: Codable {
+    let status: String
+    let instanceId: UUID?
+    let skillName: String?
+    let tokenRevoked: Bool?
+    let timestamp: Date
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case instanceId = "instance_id"
+        case skillName = "skill_name"
+        case tokenRevoked = "token_revoked"
+        case timestamp
+    }
+}
+
+struct CommandResponse: Codable, Identifiable {
+    let id: UUID
+    let instanceId: UUID
+    let commandType: String
+    let payload: [String: String]?
+    let status: String
+    let reason: String?
+    let resultMessage: String?
+    let createdAt: Date
+    let acknowledgedAt: Date?
+    let completedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case instanceId = "instance_id"
+        case commandType = "command_type"
+        case payload, status, reason
+        case resultMessage = "result_message"
+        case createdAt = "created_at"
+        case acknowledgedAt = "acknowledged_at"
+        case completedAt = "completed_at"
+    }
+}
+
+struct AlertListResponse: Codable {
+    let alerts: [SecurityAlertAPI]
+    let nextCursor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case alerts
+        case nextCursor = "next_cursor"
+    }
+}
+
+struct SecurityAlertAPI: Codable, Identifiable {
+    let id: UUID
+    let eventId: UUID
+    let instanceId: UUID
+    let detectorName: String
+    let skillName: String
+    let severity: Severity
+    let explanation: String
+    let recommendedAction: String
+    let evidence: [String: AnyCodable]?
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case eventId = "event_id"
+        case instanceId = "instance_id"
+        case detectorName = "detector_name"
+        case skillName = "skill_name"
+        case severity, explanation
+        case recommendedAction = "recommended_action"
+        case evidence
+        case createdAt = "created_at"
+    }
+}
+
+struct RiskSummaryResponse: Codable {
+    let totalAlertsToday: Int
+    let mostCommonDetector: String?
+    let lastCriticalTimestamp: Date?
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case totalAlertsToday = "total_alerts_today"
+        case mostCommonDetector = "most_common_detector"
+        case lastCriticalTimestamp = "last_critical_timestamp"
+        case status
+    }
+}
+
+struct SkillAPIResponse: Codable, Identifiable {
+    let id: UUID
+    let name: String
+    let trustStatus: String
+    let lastRun: Date?
+    let instanceId: UUID
+    let createdAt: Date
+    let observedBehaviors: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case trustStatus = "trust_status"
+        case lastRun = "last_run"
+        case instanceId = "instance_id"
+        case createdAt = "created_at"
+        case observedBehaviors = "observed_behaviors"
     }
 }
 

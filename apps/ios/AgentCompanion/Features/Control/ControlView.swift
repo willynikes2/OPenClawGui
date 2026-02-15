@@ -84,6 +84,27 @@ struct ControlView: View {
     private var controlContent: some View {
         ScrollView {
             VStack(spacing: Space.lg) {
+                // Status banners
+                if let error = viewModel.actionError {
+                    statusBanner(message: error, color: .red, icon: "xmark.circle.fill")
+                }
+                if let success = viewModel.actionSuccess {
+                    statusBanner(message: success, color: .green, icon: "checkmark.circle.fill")
+                }
+                if viewModel.actionInProgress {
+                    HStack(spacing: Space.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Processing...")
+                            .font(Typography.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(Space.md)
+                    .background(Color(.tertiarySystemFill))
+                    .clipShape(RoundedRectangle(cornerRadius: Radii.button))
+                }
+
                 systemStatusCard
                 activeRunsSection
                 quickActionsSection
@@ -92,6 +113,24 @@ struct ControlView: View {
             .padding(.horizontal, Space.lg)
             .padding(.bottom, Space.xxl)
         }
+        .refreshable {
+            await viewModel.loadInitial()
+        }
+    }
+
+    private func statusBanner(message: String, color: Color, icon: String) -> some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(message)
+                .font(Typography.caption)
+                .foregroundStyle(.primary)
+            Spacer()
+        }
+        .padding(Space.md)
+        .background(color.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: Radii.button))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - System Status Card
@@ -285,9 +324,10 @@ struct ControlView: View {
                     quickActionButton(
                         icon: "play.fill",
                         label: "Resume",
-                        color: .green,
-                        action: viewModel.resumeInstance
-                    )
+                        color: .green
+                    ) {
+                        Task { await viewModel.resumeInstance() }
+                    }
                 } else {
                     quickActionButton(
                         icon: "pause.fill",
@@ -309,11 +349,12 @@ struct ControlView: View {
                 quickActionButton(
                     icon: "play.circle",
                     label: "Test Run",
-                    color: .blue,
-                    action: viewModel.testRun
-                )
+                    color: .blue
+                ) {
+                    Task { await viewModel.testRun() }
+                }
 
-                // Placeholder for future actions
+                // Refresh
                 quickActionButton(
                     icon: "arrow.clockwise",
                     label: "Refresh",
@@ -349,6 +390,7 @@ struct ControlView: View {
             .padding(.vertical, Space.sm)
         }
         .buttonStyle(.plain)
+        .disabled(viewModel.actionInProgress)
         .accessibilityElement(children: .combine)
     }
 
