@@ -6,8 +6,9 @@ AgentCompanion is an iOS-first mobile app (with future Android + Web) that conne
 
 Full specifications are in `docs/`. **Read these before building anything:**
 
-- `docs/openclawguidesignspecclaude.txt` — Complete build spec (architecture, security, data model, milestones, acceptance criteria)
+- `docs/openclawguidesignspecclaude.txt` — Complete build spec (architecture, security, data model, milestones 1–6, acceptance criteria)
 - `docs/OpenclawUiSpecification.txt` — Full UI/UX spec (screens, components, design tokens, accessibility, motion)
+- `docs/openclawguiaddendum.txt` — Addendum: Unified Assistant (Chat), Human-in-the-Loop Approvals, Security Intel (VirusTotal/SkillShield/Red Council), milestones 7–10
 
 ---
 
@@ -25,6 +26,7 @@ agentcompanion/
 │       │   ├── Features/      # Feature modules
 │       │   │   ├── Onboarding/
 │       │   │   ├── Inbox/
+│       │   │   ├── Chat/        # M7: ChatHomeView, ChatThreadView, ChatViewModel
 │       │   │   ├── EventDetail/
 │       │   │   ├── Control/
 │       │   │   ├── Security/
@@ -32,16 +34,18 @@ agentcompanion/
 │       │   ├── Services/      # API client, auth, push, local DB
 │       │   ├── Models/        # Data models
 │       │   └── Resources/     # Assets, localization
-│       └── AgentCompanion.xcodeproj
+│       ├── AgentCompanion.xcodeproj
+│       └── DailyBriefWidget/ # M6: WidgetKit extension
 ├── backend/               # FastAPI + Postgres + Redis
 │   ├── app/
 │   │   ├── main.py
-│   │   ├── api/           # Route modules
-│   │   ├── models/        # SQLAlchemy models
+│   │   ├── api/           # Route modules (ingest, auth, events, commands, alerts, chat, approvals)
+│   │   ├── models/        # SQLAlchemy models (event, alert, command, thread, message, approval)
 │   │   ├── schemas/       # Pydantic schemas
-│   │   ├── services/      # Business logic (auth, ingest, detectors, PII scrubber)
+│   │   ├── services/      # Business logic (auth, ingest, detectors, PII scrubber, router, conversation, orchestrator, intel)
 │   │   ├── security/      # HMAC verification, encryption, PII redaction
-│   │   └── core/          # Config, database, dependencies
+│   │   ├── core/          # Config, database, dependencies
+│   │   └── resources/     # M9: Red Council pattern packs (JSON/YAML)
 │   ├── alembic/           # DB migrations
 │   ├── tests/
 │   ├── requirements.txt
@@ -55,6 +59,7 @@ agentcompanion/
 ├── docs/
 │   ├── openclawguidesignspecclaude.txt
 │   ├── OpenclawUiSpecification.txt
+│   ├── openclawguiaddendum.txt  # Unified Assistant, Security Intel, Approvals spec
 │   ├── THREAT_MODEL.md
 │   ├── API.md
 │   └── SECURITY_CHECKLIST.md
@@ -130,6 +135,9 @@ agentcompanion/
 - Store structured summaries, NOT raw text (raw is opt-in)
 - Never store file contents, email bodies, or secrets by default
 - Keep only metadata unless user explicitly opts into full capture
+- Do not store full URLs with query strings by default
+- Store metadata (counts/domains) rather than raw payloads
+- All commands + approvals must be audited (who, when, what)
 
 ---
 
@@ -161,6 +169,75 @@ severity: enum (info | warn | critical)
 pii_redacted: boolean
 hmac_signature: string
 created_at: datetime
+```
+
+### Chat & Conversation Models (Milestone 7+)
+```
+Thread:
+  id: UUID
+  user_id: FK
+  instance_id: FK
+  title: string (nullable, auto-generated)
+  created_at: datetime
+  updated_at: datetime
+
+Message:
+  id: UUID
+  thread_id: FK
+  message_type: enum (user_message | assistant_message | agent_message | structured_card_message | system_message | approval_request)
+  sender_type: enum (user | assistant | agent | system)
+  content: text (nullable)
+  structured_json: jsonb (nullable)
+  routing_plan_id: FK (nullable)
+  correlation_id: UUID (nullable)
+  event_id: FK (nullable, links to related Event)
+  alert_id: FK (nullable, links to related Alert)
+  tool_usage: jsonb (nullable, for tool transparency strip)
+  created_at: datetime
+
+RoutingPlan:
+  id: UUID
+  thread_id: FK
+  instance_id: FK
+  intent: enum (daily_brief | business_summary | explain_alert | general_qna | control_action | security_inquiry)
+  targets: jsonb (array of {type, name, confidence, params})
+  requires_approval: boolean
+  safety_policy: enum (default | restricted | safe_mode)
+  notes: text (nullable)
+  created_at: datetime
+```
+
+### Approval Model (Milestone 8)
+```
+ApprovalRequest:
+  id: UUID
+  instance_id: FK
+  thread_id: FK (nullable)
+  skill_name: string
+  action: enum (send_email | exec_shell | access_sensitive_path | new_domain | bulk_export)
+  summary: string
+  risk_level: enum (warning | critical)
+  options: string[] (allow_once, allow_always, deny)
+  evidence: jsonb
+  status: enum (pending | approved | denied | expired)
+  decided_by: FK (nullable, User)
+  decided_at: datetime (nullable)
+  expires_at: datetime
+  created_at: datetime
+```
+
+### Skill Intel Fields (Milestone 9)
+```
+Skill (extended fields):
+  vt_verdict: enum (clean | suspicious | malicious | unknown) (nullable)
+  vt_score: int (nullable)
+  vt_last_checked_at: datetime (nullable)
+  skillshield_score: int (nullable, 0-100)
+  skillshield_findings: jsonb (nullable, array of finding objects)
+  skillshield_report_url: string (nullable)
+  skillshield_last_checked_at: datetime (nullable)
+  risk_score: int (computed, 0-100)
+  trust_status: enum (trusted | unknown | risky | blocked) (computed)
 ```
 
 ---
@@ -225,9 +302,10 @@ Radii.sheet = system default
 - State handling on every screen: loading / empty / error / success
 
 ### Navigation
-- 4-tab TabView: Inbox, Control, Security, Settings
+- **Milestones 1–6:** 4-tab TabView: Inbox, Control, Security, Settings
+- **Milestones 7+:** 5-tab TabView: Inbox, Chat, Control, Security — Settings accessible via gear icon in Inbox/Chat toolbar
 - SF Symbols for tab icons, labels visible
-- Instance context visible at top of Inbox/Control/Security tabs
+- Instance context visible at top of Inbox/Chat/Control/Security tabs
 
 ### Motion & Haptics
 - Haptics: success = light, warning = medium, destructive = heavy
@@ -283,6 +361,132 @@ Monorepo layout, CI setup, README, CLAUDE.md, specs in docs/
 - iOS widget v1 (daily brief)
 - TTS readout on event detail
 
+### Milestone 7 — Chat & Unified Assistant
+- **Navigation change:** 5-tab TabView: Inbox / Chat / Control / Security, Settings via gear icon inside Inbox/Chat
+- **Chat tab (iOS):**
+  - `ChatHomeView` — single "Assistant" conversation with optional instance picker pill
+  - `ChatThreadView` — message list supporting types: `user_message`, `assistant_message`, `agent_message`, `structured_card_message`, `system_message`, `approval_request`
+  - Composer + send button
+  - Message rendering: rich cards (same renderer as Inbox) for structured outputs, plain bubbles for text
+- **Backend — RouterService:**
+  - Deterministic keyword + classifier routing (MVP, no LLM):
+    - "summary / brief / weather / calendar" → `daily_brief` skill
+    - "money / revenue / invoices / sales" → `business_summary` skill
+    - "why alert / explain / what happened" → `explain_alert` skill
+    - "pause / stop / kill" → `control_action`
+    - "is this skill safe / trust / malicious" → `security_inquiry`
+    - Fallback: `general_qna` routed to default agent (safe mode)
+  - Outputs a `RoutingPlan` with: thread_id, instance_id, intent, targets (type/name/confidence/params), requires_approval, safety_policy, notes
+- **Backend — ConversationService:**
+  - Stores messages, threads, and relations to events/alerts
+  - Supports search and retention policies
+- **Backend — OrchestratorService:**
+  - Executes routing plans by issuing commands to the instance
+  - Tracks correlation IDs and message linkage
+- **Chat API endpoints (FastAPI):**
+  - `POST /api/v1/chat/send` — send user message, returns routing plan + enqueues commands
+  - `GET /api/v1/chat/thread/{thread_id}` — fetch thread messages
+  - `POST /api/v1/chat/receive` — instance sends agent response back (HMAC auth)
+  - `GET /api/v1/chat/threads` — list user's threads
+  - `POST /api/v1/chat/attach_context` — attach event/alert reference to next message
+- **Chat message execution flow:**
+  1. App → `POST /chat/send`
+  2. Backend stores user msg, generates routing_plan
+  3. Backend enqueues command(s) to instance: `run_skill` with params OR `chat_message` to agent
+  4. Bridge skill receives, forwards to OpenClaw
+  5. Responses come back as `POST /chat/receive` and/or `POST /ingest`
+  6. Backend pushes "new message available" (no content) → app fetches
+- **New data models:**
+  - `Thread` — id, user_id, instance_id, title, created_at, updated_at
+  - `Message` — id, thread_id, message_type (enum), sender_type, content, structured_json, routing_plan_json, correlation_id, event_id (FK nullable), alert_id (FK nullable), created_at
+  - `RoutingPlan` — id, thread_id, instance_id, intent, targets (JSONB), requires_approval, safety_policy, notes, created_at
+- **Command channel extension:**
+  - New command types: `chat_message`, `run_skill`
+  - Commands include `correlation_id` and `expires_at`
+- **Bridge skill extension:**
+  - Handle `chat_message` and `run_skill` command types
+  - Forward to OpenClaw runtime, return results via `POST /chat/receive`
+- **Tests:** Router intent classification, conversation CRUD, chat send/receive flow, routing plan generation
+
+### Milestone 8 — Human-in-the-Loop Approvals
+- **Approval request model:**
+  - `ApprovalRequest` — approval_id, instance_id, skill_name, action (enum: `send_email`, `exec_shell`, `access_sensitive_path`, `new_domain`, `bulk_export`), summary, risk_level (warning/critical), options (`allow_once`, `allow_always`, `deny`), expires_at, evidence (JSONB), status, decided_by, decided_at, created_at
+- **Bridge skill creates approval requests** when agent attempts sensitive actions:
+  - Sending email to multiple recipients
+  - Accessing sensitive directories
+  - Executing shell commands
+  - Contacting new/untrusted domains
+  - Exporting large data
+- **Chat approval cards (iOS):**
+  - `ApprovalCardView` — displays in chat as a card with: skill name, action summary, risk level badge, evidence preview, three buttons: "Allow Once" / "Always Allow" / "Deny"
+  - Tapping a button sends `approve_action` command back to instance
+  - Expired approvals show as disabled with "Expired" label
+- **Backend:**
+  - `POST /api/v1/approvals` — bridge skill creates approval request (HMAC auth)
+  - `POST /api/v1/approvals/{id}/decide` — user decides (JWT auth), forwards `approve_action` command
+  - `GET /api/v1/approvals?instance_id=...&status=pending` — list pending approvals
+  - Approval decisions audited: who, when, what, from which device
+- **Command flow:**
+  1. Bridge skill detects sensitive action → creates approval request
+  2. Backend stores request, pushes "approval needed" notification
+  3. App shows approval card in chat thread
+  4. User taps Allow/Deny → `POST /approvals/{id}/decide`
+  5. Backend creates `approve_action` command with decision
+  6. Bridge skill receives decision, allows or blocks the action
+- **Tests:** Approval creation, decision flow, expiry handling, audit trail, chat card rendering data
+
+### Milestone 9 — Security Intel Integration
+- **VirusTotal integration:**
+  - For each skill artifact: compute SHA-256 hash, query VT reputation
+  - Store on Skill model: `vt_verdict` (clean/suspicious/malicious/unknown), `vt_score`, `vt_last_checked_at`
+  - Alert rules: malicious → Critical + recommend disable + kill switch CTA; suspicious → Warning + recommend restrict; verdict change clean→suspicious/malicious → Critical/Warning
+  - UI: Skill row shows "VirusTotal: Clean / Suspicious / Malicious" badge
+  - **Never upload user secrets** — only scan skill artifact hashes
+- **SkillShield integration:**
+  - Query SkillShield for trust score (0–100) and finding categories
+  - Store on Skill model: `skillshield_score`, `skillshield_findings[]`, `skillshield_report_url`, `skillshield_last_checked_at`
+  - Alert rules: score drop ≥15 → Warning; score drop ≥30 or new high severity finding → Critical; new findings hash → Info
+  - UI: "SkillShield: 82/100" badge + "View report" link
+- **Red Council integration:**
+  - A) Offline test corpus (MVP): ship curated pattern packs as JSON/YAML in `backend/resources/redcouncil/`
+    - Categories: `prompt_injection`, `secret_exfiltration`, `tool_abuse`, `data_poisoning_signals`
+  - B) Canary checks (Pro/optional): periodic safe probes in sandbox mode; if response matches exfiltration/jailbreak patterns → Critical alert
+  - UI: Detector settings adds optional detectors: "Canary: Prompt injection", "Canary: Secret exfiltration"; Alerts show source "Red Council Canary"
+- **Unified risk scoring (per skill):**
+  - Start at 100, subtract: -60 VT malicious, -30 VT suspicious, -(80 - skillshield_score) * 0.5 (cap 40), -25 shell spawned unexpectedly, -25 secret pattern detected, -15 new domain + no allowlist, -40 canary exfiltration hit
+  - Trust status: 80–100 Trusted, 50–79 Unknown, 20–49 Risky, <20 or VT malicious → Blocked
+  - Auto-policy (optional): Blocked → backend recommends disable, surfaces Kill Switch CTA
+- **API changes:**
+  - `GET /api/v1/skills` extended with vt + skillshield fields
+  - `POST /api/v1/skills/{id}/rescan_intel` — trigger re-scan of VT + SkillShield
+  - `GET /api/v1/alerts` extended with source filter: `runtime|virustotal|skillshield|redcouncil`
+- **Tests:** VT verdict → alert generation, SkillShield score drop → alert, Red Council pattern matching, risk score calculation, trust status thresholds
+
+### Milestone 10 — Premium Chat Polish
+- **Tool transparency strip:**
+  - For each assistant/agent response, display a collapsible strip showing:
+    - Tools used: WebSearch / Email / Files / Shell / Network (icons)
+    - Domains contacted: count + top 3 domains (redacted)
+    - Duration
+    - Risk flags (if any detectors triggered during execution)
+  - `ToolTransparencyStrip` SwiftUI component
+- **Quick chips above composer:**
+  - Horizontally scrollable chip row: "Run Daily Brief", "Business Summary", "Explain this alert", "Pause instance"
+  - Tapping a chip inserts it as a message and auto-sends
+  - Chips contextualize: if viewing an alert, show "Explain this alert" chip
+- **Attach context:**
+  - "Attach last event", "Attach this alert", "Attach last 24h activity summary"
+  - Shows as a small preview card above the composer
+  - Sends attached reference IDs with the message via `POST /chat/attach_context`
+- **Rich card rendering in chat:**
+  - `structured_card_message` renders using same card components as Inbox (AgentCardView, SeverityBadge)
+  - KPI cards, daily brief cards, weather cards — all using `body_structured_json`
+  - System messages render as centered gray text
+  - Agent messages show "Routed to: {skill_name}" subtitle
+- **Accessibility:** VoiceOver for all chat elements, tool strip, chips, approval cards
+- **Haptics:** Send message = light, approval decision = medium/heavy, chip tap = selection
+- **Tests:** Chat UI snapshot data, tool strip rendering, chip insertion logic
+
 ---
 
 ## API Design Conventions
@@ -293,6 +497,38 @@ Monorepo layout, CI setup, README, CLAUDE.md, specs in docs/
 - Pagination: cursor-based (`?cursor=xxx&limit=20`)
 - Error responses: `{ "error": "message", "code": "ERROR_CODE" }`
 - All timestamps: ISO 8601 UTC
+
+### API Endpoints by Milestone
+
+**Milestones 1–6 (existing):**
+- `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`
+- `POST /api/v1/ingest` (HMAC auth)
+- `GET /api/v1/events`, `GET /api/v1/events/{id}`
+- `GET /api/v1/instances`, `GET /api/v1/instances/{id}`
+- `POST /api/v1/instances/{id}/pause`, `POST /api/v1/instances/{id}/resume`, `POST /api/v1/instances/{id}/kill-switch`
+- `POST /api/v1/instances/{id}/commands`, `GET /api/v1/instances/{id}/commands`
+- `GET /api/v1/instances/{id}/commands/pending` (HMAC auth, for bridge skill polling)
+- `POST /api/v1/instances/{id}/commands/{cmd_id}/ack` (HMAC auth)
+- `GET /api/v1/instances/{id}/alerts`, `GET /api/v1/instances/{id}/alerts/{id}`
+- `GET /api/v1/instances/{id}/risk-summary`
+- `GET /api/v1/instances/{id}/skills`, `POST /api/v1/instances/{id}/skills/{name}/disable`
+
+**Milestone 7 — Chat:**
+- `POST /api/v1/chat/send` — JWT auth, send user message + get routing plan
+- `GET /api/v1/chat/threads` — JWT auth, list user threads
+- `GET /api/v1/chat/thread/{thread_id}` — JWT auth, fetch thread messages
+- `POST /api/v1/chat/receive` — HMAC auth, instance sends agent response
+- `POST /api/v1/chat/attach_context` — JWT auth, attach event/alert ref
+
+**Milestone 8 — Approvals:**
+- `POST /api/v1/approvals` — HMAC auth, bridge skill creates approval request
+- `GET /api/v1/approvals?instance_id=...&status=pending` — JWT auth, list approvals
+- `POST /api/v1/approvals/{id}/decide` — JWT auth, approve/deny decision
+
+**Milestone 9 — Security Intel:**
+- `GET /api/v1/skills` extended with VT + SkillShield fields
+- `POST /api/v1/skills/{id}/rescan_intel` — JWT auth, trigger VT + SkillShield re-scan
+- `GET /api/v1/alerts` extended with `?source=runtime|virustotal|skillshield|redcouncil` filter
 
 ---
 
@@ -333,7 +569,7 @@ Final license decision before public release.
 
 ---
 
-## Acceptance Criteria (MVP Complete When)
+## Acceptance Criteria (MVP Complete When — Milestones 1–6)
 
 1. User can install bridge skill, pair iOS app, see agent outputs in inbox
 2. Outputs are stored, searchable, and available offline
@@ -344,6 +580,19 @@ Final license decision before public release.
 7. UI feels native, clean, fast — passes accessibility audit
 8. Dark mode works correctly throughout
 9. All destructive actions have confirmation sheets
+
+## Acceptance Criteria (Milestones 7–10)
+
+10. User can type in Chat and get routed execution without picking agents manually
+11. Routing plan is visible in UI ("Routed to …") and logged server-side
+12. Responses render as rich cards when structured output exists
+13. Tool transparency strip shows tools/domains used (metadata only)
+14. Approvals appear in chat and can stop sensitive actions before they execute
+15. Approval decisions are audited (who, when, what, from which device)
+16. Security tab shows VT + SkillShield + Red Council-derived alerts and trust status
+17. Unified risk score computed per skill from all intel sources
+18. No PII in push notifications, aggressive redaction of secrets in logs and evidence
+19. All commands + approvals audited with full traceability
 
 ---
 
