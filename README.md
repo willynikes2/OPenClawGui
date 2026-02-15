@@ -1,71 +1,115 @@
 # OpenClaw GUI (Mobile Companion)
 
-A native mobile companion for OpenClaw/Clawdbot that turns agent output into a first-class mobile experience — with an Inbox, remote Control Center, and Security monitoring.
+A native mobile companion for *OpenClaw / Clawdbot* that turns agent outputs into a first-class mobile experience — with an Inbox, remote Control Center, and Security monitoring.
 
-## What it does
+---
 
-- **Inbox for agent output**: store, search, and view agent updates in a clean card UI (instead of chat logs).
-- **Control Center**: monitor instance health, view active runs, start/stop runs, and use a kill switch.
-- **Security / “Agent Antivirus”**: detect suspicious behaviors (new domains, shell execution, secret patterns, etc.) and take one-tap containment actions.
-- **Polished UX**: confirmation dialogs with “why this matters”, haptics, accessibility-first UI.
+## 🚀 Overview
 
-## Current status
+OpenClaw GUI is designed to be the **go-to mobile interface** for users running autonomous AI agents. Instead of dumping outputs into Telegram or Discord, this app gives:
 
-✅ Control tab implemented  
-✅ Security tab implemented  
-🔜 Inbox + pairing + ingestion (bridge skill / webhook / gateway)  
-🔜 Push notifications + widgets + voice readout
+- 📥 A structured **Inbox** of agent output
+- 🛠️ A **Control Center** to monitor and manage instances
+- 🛡️ A **Security dashboard** to detect anomalous agent behavior
+- 💡 Polished UI with haptics, accessibility support, and clear feedback
 
-## Screens
+---
 
-### Control
-- System Status (health + mode + last seen)
-- Active Runs (progress, stop, completion states)
-- Quick Actions (pause/resume, kill switch, test run, refresh)
-- Output Routing (In-App, Telegram, Email, Structured mode)
+## 🧠 Key Features
 
-### Security
-- Today’s risk summary
-- Alerts list + alert detail
-- Skill trust list (trusted vs untrusted/unknown)
-- Detector settings (required detectors cannot be disabled; per-detector sensitivity)
+### 🕹️ Control Center
+- Instance health overview (status, modes)
+- Active run list with progress
+- Quick actions: Pause, Resume, Kill Switch, Test Run
+- Output routing toggles (In-App, Telegram, Email, Structured)
 
-## Architecture (planned)
+### 🔒 Security Monitoring
+- Daily risk summary (“Alerts Today”)
+- Filterable alerts list (Info / Warning / Critical)
+- Per-skill trust status with Allowlist / Disable controls
+- Detector settings with sensitivity levels
 
-- **Mobile app**: iOS (SwiftUI) first
-- **Integration**: OpenClaw Gateway when available; fallback via bridge skill + webhook; optional Telegram bridge
-- **Security telemetry**: optional local “sensor” daemon for higher-signal monitoring
-- **Backend**: event ingest + storage + push routing + policy/allowlist (minimal, privacy-first)
+### 👁️ UX Highlights
+- Confirmation dialogs explaining “why this matters”
+- Haptic feedback throughout
+- Accessibility support (VoiceOver, dynamic type, contrast)
+- Clean onboarding and future pairing flows
 
-## Privacy & security
+---
 
-This project is designed with data minimization in mind:
-- Push notifications should never contain sensitive content.
-- Outputs can be stored as structured summaries; raw text capture can be optional.
-- Telemetry focuses on high-level signals (domains, process names, timestamps), not file contents.
+## 📌 Current Status (MVP)
 
-## Getting started
+Completed:
+- ✔ Control tab
+- ✔ Security tab
+- ✔ Accessibility & haptics foundation
+
+In progress / next:
+- ◼ iOS WidgetKit daily brief
+- ◻ Polished TTS readout
+- Inbox + pairing + ingestion pipeline (bridge skill / webhook / Gateway)
+- Push notifications
+- Backend event storage & sync
+
+---
+
+## 📐 Architecture (planned)
+
+- **Mobile app:** iOS (SwiftUI) first
+- **Integration layers:**
+  - Primary: OpenClaw Gateway where available
+  - Fallback: Bridge skill → Webhook → Backend
+  - Optional: Telegram bridge
+- **Security telemetry:** Optional local sensor daemon
+- **Backend:** FastAPI event ingest + storage + push routing + policy engine
+
+---
+
+## 🔐 Privacy & Security Goals
+
+This project prioritizes **minimal and safe data handling**:
+- Push notifications never contain sensitive content
+- Structured summaries preferred over raw text
+- Telemetry focuses on metadata (domains, process names, timestamps)
+- Configurable retention and redaction controls
+
+---
+
+## 🧪 Getting Started
 
 ### Requirements
-- Xcode (latest stable)
+- Xcode (latest)
 - iOS 16+ (recommended)
-- (Optional) OpenClaw/Clawdbot instance for live integration
+- (Optional) OpenClaw instance for live testing
 
-### Run locally
+### Run Locally
 1. Clone the repo
 2. Open the Xcode project
-3. Build + run on simulator or device
+3. Build & run on simulator or device
 
-## Roadmap
+---
 
-- [ ] Inbox + Event Detail (structured + raw)
-- [ ] Pairing flow (QR/token)
-- [ ] Bridge skill (webhook sender)
-- [ ] Push notifications
-- [ ] Widgets + voice readout
-- [ ] Policy controls (safe mode, allowlists)
-- [ ] Android + Web dashboard (later)
+## 📅 Roadmap
 
-## Contributing
+- 📥 Inbox + Event Detail (structured + raw)
+- 🔗 Pairing flow (QR/token)
+- 🧠 Bridge skill (webhook sender)
+- 🔔 Push notifications
+- 🧩 Widgets + TTS readout
+- 🔐 Policy controls (safe mode, allowlists)
+- 🤖 Android & Web dashboard (future)
 
-PRs welcome. If you’re adding new UI, follow the existing component + design system patterns and keep accessibility in mind.
+---
+
+## 💬 Contributing
+
+Contributions are welcome! If you’re adding UI or backend features:
+- Follow existing architectural patterns
+- Keep accessibility in mind
+- Write clear component tests
+
+---
+
+## 📌 About
+
+OpenClaw GUI — a companion app that makes autonomous agents *usable, safe, and delightful* on mobile.
