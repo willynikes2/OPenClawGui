@@ -336,6 +336,101 @@ class CompanionBridge:
         return stop_event
 
     # ------------------------------------------------------------------
+    # Chat — send agent responses back to the conversation
+    # ------------------------------------------------------------------
+
+    def send_chat_response(
+        self,
+        *,
+        thread_id: str,
+        correlation_id: str,
+        content: str | None = None,
+        structured_json: dict[str, Any] | None = None,
+        tool_usage: dict[str, Any] | None = None,
+        skill_name: str | None = None,
+    ) -> dict | None:
+        """Send an agent response back to a chat thread.
+
+        Args:
+            thread_id: UUID of the chat thread.
+            correlation_id: UUID correlating this response to the original command.
+            content: Plain text response content.
+            structured_json: Structured data for rich card rendering.
+            tool_usage: Metadata about tools/skills used to produce the response.
+            skill_name: Name of the skill that produced this response.
+        """
+        url = f"{self.config.backend_url}/chat/receive"
+        body: dict[str, Any] = {
+            "thread_id": thread_id,
+            "correlation_id": correlation_id,
+        }
+        if content is not None:
+            body["content"] = content
+        if structured_json is not None:
+            body["structured_json"] = structured_json
+        if tool_usage is not None:
+            body["tool_usage"] = tool_usage
+        if skill_name is not None:
+            body["skill_name"] = skill_name
+
+        headers = self._hmac_headers("")
+        headers["Content-Type"] = "application/json"
+
+        try:
+            resp = self._client.post(url, json=body, headers=headers)
+            if resp.status_code == 201:
+                logger.info(
+                    "Chat response sent to thread %s (correlation=%s)",
+                    thread_id, correlation_id,
+                )
+                return resp.json()
+            logger.warning("Chat response failed: %d %s", resp.status_code, resp.text)
+        except httpx.HTTPError as exc:
+            logger.warning("Chat response HTTP error: %s", exc)
+
+        return None
+
+    def handle_chat_command(self, command: dict) -> str | None:
+        """Handle a chat_message or run_skill command from the command channel.
+
+        Subclass or override to implement actual agent/skill logic.
+        Default implementation echoes the message back with routing info.
+
+        Returns a result message string for command acknowledgement.
+        """
+        cmd_type = command.get("command_type", "")
+        payload = command.get("payload", {})
+        thread_id = payload.get("thread_id")
+        correlation_id = command.get("correlation_id")
+
+        if not thread_id or not correlation_id:
+            return "Missing thread_id or correlation_id"
+
+        if cmd_type == "chat_message":
+            agent_name = payload.get("agent_name", "default")
+            message = payload.get("message", "")
+            self.send_chat_response(
+                thread_id=thread_id,
+                correlation_id=correlation_id,
+                content=f"[{agent_name}] Received: {message}",
+            )
+            return f"Chat message handled by {agent_name}"
+
+        if cmd_type == "run_skill":
+            skill_name = payload.get("skill_name", "unknown")
+            message = payload.get("message", "")
+            self.send_chat_response(
+                thread_id=thread_id,
+                correlation_id=correlation_id,
+                content=f"Skill '{skill_name}' executed for: {message}",
+                skill_name=skill_name,
+                tool_usage={"skill": skill_name, "status": "completed"},
+            )
+            return f"Skill {skill_name} executed"
+
+        return f"Unknown chat command type: {cmd_type}"
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 

@@ -152,6 +152,49 @@ final class APIService: ObservableObject {
         return try await authenticatedPost(url: url, body: body)
     }
 
+    // MARK: - Chat
+
+    func fetchChatThreads(instanceId: UUID? = nil, limit: Int = 20) async throws -> [ChatThread] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("chat/threads"), resolvingAgainstBaseURL: false)!
+        var queryItems: [URLQueryItem] = [.init(name: "limit", value: String(limit))]
+        if let instanceId { queryItems.append(.init(name: "instance_id", value: instanceId.uuidString)) }
+        components.queryItems = queryItems
+        return try await authenticatedRequest(url: components.url!)
+    }
+
+    func fetchChatThread(threadId: UUID) async throws -> ChatThreadDetail {
+        let url = baseURL.appendingPathComponent("chat/thread/\(threadId.uuidString)")
+        return try await authenticatedRequest(url: url)
+    }
+
+    func sendChatMessage(
+        threadId: UUID? = nil,
+        instanceId: UUID,
+        content: String,
+        attachedEventId: UUID? = nil,
+        attachedAlertId: UUID? = nil
+    ) async throws -> ChatSendResponse {
+        let url = baseURL.appendingPathComponent("chat/send")
+        let body = ChatSendRequest(
+            threadId: threadId,
+            instanceId: instanceId,
+            content: content,
+            attachedEventId: attachedEventId,
+            attachedAlertId: attachedAlertId
+        )
+        return try await authenticatedPost(url: url, body: body)
+    }
+
+    func attachChatContext(
+        threadId: UUID,
+        eventId: UUID? = nil,
+        alertId: UUID? = nil
+    ) async throws -> ChatMessage {
+        let url = baseURL.appendingPathComponent("chat/attach_context")
+        let body = AttachContextAPIRequest(threadId: threadId, eventId: eventId, alertId: alertId)
+        return try await authenticatedPost(url: url, body: body)
+    }
+
     // MARK: - Networking
 
     private func authenticatedRequest<T: Decodable>(url: URL) async throws -> T {
@@ -219,6 +262,34 @@ struct CommandCreateRequest: Codable {
     enum CodingKeys: String, CodingKey {
         case commandType = "command_type"
         case payload, reason
+    }
+}
+
+struct ChatSendRequest: Codable {
+    let threadId: UUID?
+    let instanceId: UUID
+    let content: String
+    let attachedEventId: UUID?
+    let attachedAlertId: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case threadId = "thread_id"
+        case instanceId = "instance_id"
+        case content
+        case attachedEventId = "attached_event_id"
+        case attachedAlertId = "attached_alert_id"
+    }
+}
+
+struct AttachContextAPIRequest: Codable {
+    let threadId: UUID
+    let eventId: UUID?
+    let alertId: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case threadId = "thread_id"
+        case eventId = "event_id"
+        case alertId = "alert_id"
     }
 }
 

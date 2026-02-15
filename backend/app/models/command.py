@@ -15,6 +15,8 @@ class CommandType(str, PyEnum):
     disable_skill = "disable_skill"
     stop_run = "stop_run"
     test_run = "test_run"
+    chat_message = "chat_message"
+    run_skill = "run_skill"
 
 
 class CommandStatus(str, PyEnum):
@@ -39,6 +41,8 @@ class Command(Base):
     status: Mapped[CommandStatus] = mapped_column(Enum(CommandStatus), default=CommandStatus.pending, index=True)
     reason: Mapped[str | None] = mapped_column(String(255))
     result_message: Mapped[str | None] = mapped_column(Text)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

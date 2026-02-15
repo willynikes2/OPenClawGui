@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Root view with 4-tab navigation per spec:
-/// Inbox, Control, Security, Settings.
+/// Root view with 5-tab navigation per spec M7+:
+/// Inbox, Chat, Control, Security, Settings (gear icon).
 /// SF Symbols for tab icons, labels visible.
 /// Shows onboarding modal if user has not completed setup.
 struct ContentView: View {
@@ -16,6 +16,12 @@ struct ContentView: View {
                     Label("Inbox", systemImage: "tray.fill")
                 }
                 .tag(Tab.inbox)
+
+            ChatHomeView()
+                .tabItem {
+                    Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
+                }
+                .tag(Tab.chat)
 
             ControlView()
                 .tabItem {
@@ -50,7 +56,7 @@ struct ContentView: View {
 }
 
 enum Tab: Hashable {
-    case inbox, control, security, settings
+    case inbox, chat, control, security, settings
 }
 
 #Preview {
