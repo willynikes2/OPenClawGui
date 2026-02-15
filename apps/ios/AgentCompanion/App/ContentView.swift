@@ -29,7 +29,7 @@ struct ContentView: View {
                 }
                 .tag(Tab.security)
 
-            SettingsTab()
+            SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
@@ -51,34 +51,6 @@ struct ContentView: View {
 
 enum Tab: Hashable {
     case inbox, control, security, settings
-}
-
-// MARK: - Settings Tab
-
-struct SettingsTab: View {
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Account") {
-                    Label("Profile", systemImage: "person.crop.circle")
-                    Label("Devices", systemImage: "iphone.gen3")
-                }
-                Section("Instances") {
-                    Label("Manage Instances", systemImage: "server.rack")
-                }
-                Section("Privacy & Data") {
-                    Label("Data Retention", systemImage: "clock.arrow.circlepath")
-                    Label("Redaction Controls", systemImage: "eye.slash")
-                    Label("Export Data", systemImage: "square.and.arrow.up")
-                }
-                Section("Notifications") {
-                    Label("Notification Settings", systemImage: "bell.badge")
-                    Label("Quiet Hours", systemImage: "moon.fill")
-                }
-            }
-            .navigationTitle("Settings")
-        }
-    }
 }
 
 #Preview {

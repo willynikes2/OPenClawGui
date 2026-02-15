@@ -2,7 +2,8 @@ import Foundation
 import SwiftUI
 
 /// View model for the Inbox feed.
-/// Manages pagination, filtering, pull-to-refresh, and new-item detection.
+/// Manages pagination, filtering, pull-to-refresh, new-item detection,
+/// and offline-first reads via EventCacheService.
 @MainActor
 final class InboxViewModel: ObservableObject {
 
@@ -13,6 +14,7 @@ final class InboxViewModel: ObservableObject {
     @Published var selectedFilter: InboxFilter = .all
     @Published var searchText: String = ""
     @Published var hasNewItems: Bool = false
+    @Published var isOffline: Bool = false
 
     // Instance context
     @Published var instances: [Instance] = []
@@ -23,6 +25,7 @@ final class InboxViewModel: ObservableObject {
     private var nextCursor: String?
     private var canLoadMore: Bool { nextCursor != nil }
     private let api = APIService.shared
+    private let cache = EventCacheService.shared
 
     // MARK: - Load States
 
@@ -34,12 +37,23 @@ final class InboxViewModel: ObservableObject {
         case error(String)
     }
 
-    // MARK: - Initial Load
+    // MARK: - Initial Load (offline-first)
 
     func loadInitial() async {
         guard loadState != .loading else { return }
         loadState = .loading
 
+        // Load from cache first for instant display
+        let cached = cache.fetchEvents(
+            instanceID: selectedInstance?.id,
+            severity: selectedFilter.severity
+        )
+        if !cached.isEmpty {
+            events = cached
+            loadState = .loaded
+        }
+
+        // Then try network refresh
         do {
             let response = try await api.fetchEvents(
                 instanceID: selectedInstance?.id,
@@ -47,9 +61,19 @@ final class InboxViewModel: ObservableObject {
             )
             events = response.events
             nextCursor = response.nextCursor
-            loadState = events.isEmpty ? .loaded : .loaded
+            isOffline = false
+            loadState = .loaded
+
+            // Cache fetched events in background
+            cache.cacheEvents(response.events)
         } catch {
-            loadState = .error(error.localizedDescription)
+            isOffline = true
+            // If we have cached data, show it; otherwise show error
+            if events.isEmpty {
+                loadState = .error(error.localizedDescription)
+            } else {
+                loadState = .loaded
+            }
         }
     }
 
@@ -70,8 +94,13 @@ final class InboxViewModel: ObservableObject {
 
             events = response.events
             nextCursor = response.nextCursor
+            isOffline = false
             loadState = .loaded
+
+            // Update cache
+            cache.cacheEvents(response.events)
         } catch {
+            isOffline = true
             // Keep existing data on refresh failure
             loadState = .loaded
         }
@@ -97,6 +126,8 @@ final class InboxViewModel: ObservableObject {
             events.append(contentsOf: response.events)
             nextCursor = response.nextCursor
             loadState = .loaded
+
+            cache.cacheEvents(response.events)
         } catch {
             loadState = .loaded
         }
@@ -118,6 +149,15 @@ final class InboxViewModel: ObservableObject {
         await loadInitial()
     }
 
+    // MARK: - Mark Read
+
+    func markEventRead(_ event: AgentEvent) {
+        if let index = events.firstIndex(where: { $0.id == event.id }) {
+            events[index].isRead = true
+        }
+        cache.markAsRead(eventID: event.id)
+    }
+
     // MARK: - Scroll to New Items
 
     func scrolledToTop() {
@@ -127,9 +167,17 @@ final class InboxViewModel: ObservableObject {
     // MARK: - Filtered Events (local search)
 
     var filteredEvents: [AgentEvent] {
-        guard !searchText.isEmpty else { return events }
+        let base: [AgentEvent]
+        if !searchText.isEmpty && isOffline {
+            // When offline, use CoreData search for better performance
+            base = cache.search(query: searchText)
+        } else {
+            base = events
+        }
+
+        guard !searchText.isEmpty else { return base }
         let query = searchText.lowercased()
-        return events.filter { event in
+        return base.filter { event in
             event.title.lowercased().contains(query) ||
             event.skillName.lowercased().contains(query) ||
             event.agentName.lowercased().contains(query) ||

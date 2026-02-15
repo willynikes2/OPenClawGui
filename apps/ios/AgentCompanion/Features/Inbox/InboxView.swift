@@ -17,7 +17,10 @@ struct InboxView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
-                mainContent
+                VStack(spacing: 0) {
+                    offlineBanner
+                    mainContent
+                }
                 newItemsPill
             }
             .navigationTitle("Inbox")
@@ -255,6 +258,26 @@ struct InboxView: View {
             .transition(.move(edge: .top).combined(with: .opacity))
             .animation(.spring(response: 0.3), value: viewModel.hasNewItems)
             .accessibilityLabel(String(localized: "Scroll to new events"))
+        }
+    }
+
+    // MARK: - Offline Banner
+
+    @ViewBuilder
+    private var offlineBanner: some View {
+        if viewModel.isOffline {
+            HStack(spacing: Space.sm) {
+                Image(systemName: "wifi.slash")
+                    .font(Typography.caption)
+                Text("Offline — showing cached data")
+                    .font(Typography.caption)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Space.xs)
+            .background(Color.orange)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(String(localized: "You are offline. Showing cached data."))
         }
     }
 
