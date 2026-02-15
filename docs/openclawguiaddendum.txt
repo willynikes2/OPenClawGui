@@ -1,0 +1,484 @@
+Claude Addendum: Unified Assistant + Security Intel (VirusTotal / SkillShield / Red Council)
+Goal
+
+Add a Chat interface to the mobile app that acts as a Unified Assistant. Users interact with one assistant, and the system routes messages to the appropriate OpenClaw agents/skills behind the scenes.
+
+This must integrate cleanly with existing:
+
+Control tab (pause/kill switch/test run)
+
+Security tab (alerts, detectors, skill trust list, detector settings)
+
+Data minimization, PII redaction, and “no PII in push payloads”
+
+1) Product UX: Unified Assistant
+1.1 Primary UX principles
+
+Users never have to choose “which agent” most of the time.
+
+Routing is transparent: show “Routed to: Daily Brief Agent / Skill: X”
+
+Outputs appear as rich cards (same renderer as Inbox).
+
+Security is visible: show “Tools used” / “Network domains contacted” summary strips on assistant responses.
+
+1.2 Navigation change
+
+Add a Chat tab:
+
+Tabs: Inbox / Chat / Control / Security
+
+Settings accessible via gear icon inside Inbox/Chat
+
+1.3 Chat screens
+
+A) ChatHomeView
+
+Single “Assistant” conversation (default)
+
+Optional: “Instances” picker pill at top (if user has multiple instances)
+
+B) ChatThreadView
+
+Message list with types:
+
+user_message
+
+assistant_message
+
+agent_message (from OpenClaw)
+
+structured_card_message (daily brief, KPI, weather, etc.)
+
+system_message (routing note, warnings)
+
+approval_request (allow/deny)
+
+Composer + send
+
+Quick chips above composer:
+
+“Run Daily Brief”
+
+“Business Summary”
+
+“Explain this alert”
+
+“Pause instance”
+
+Tap-to-attach context:
+
+“Attach last event”
+
+“Attach this alert”
+
+“Attach last 24h activity summary”
+
+1.4 “Tool transparency strip”
+
+For each assistant/agent response, display a small strip:
+
+Tools used: WebSearch / Email / Files / Shell / Network
+
+Domains contacted: count + top 3 domains (redacted)
+
+Duration
+
+Risk flags (if any detectors triggered)
+
+This is a key differentiator vs Telegram.
+
+2) Backend: Unified Assistant Routing
+2.1 New backend modules (FastAPI)
+
+Add:
+
+A) RouterService
+
+Decides which agent/skill should handle a user message.
+
+Inputs:
+
+user message
+
+instance context
+
+recent thread context (last N messages)
+
+optional attached event/alert references
+
+Outputs:
+
+routing_plan
+
+B) OrchestratorService
+
+Executes the routing plan by issuing commands to the instance.
+
+Tracks correlation IDs and message linkage.
+
+C) ConversationService
+
+Stores messages, threads, and their relations to events/alerts.
+
+Supports search and retention policies.
+
+2.2 Routing plan schema
+
+A routing plan must be explicit and logged:
+
+{
+  "thread_id": "uuid",
+  "instance_id": "uuid",
+  "intent": "daily_brief|business_summary|explain_alert|general_qna|control_action|security_inquiry",
+  "targets": [
+    { "type": "skill", "name": "daily_brief", "confidence": 0.82, "params": { "range": "today" } }
+  ],
+  "requires_approval": false,
+  "safety_policy": "default|restricted|safe_mode",
+  "notes": "Routed to Daily Brief because user asked for summary of day."
+}
+2.3 Router logic (MVP)
+
+Do not overbuild. Use deterministic routing first:
+
+Keyword + simple classifier rules:
+
+“summary / brief / weather / calendar” → daily_brief skill
+
+“money / revenue / invoices / sales” → business_summary skill
+
+“why alert / explain / what happened” → explain_alert skill
+
+“pause / stop / kill” → control_action
+
+“is this skill safe / trust / malicious” → security_inquiry
+Fallback:
+
+general_qna routed to a default agent that can answer without dangerous tools (safe mode by default)
+
+Later you can add an LLM router, but MVP should work without it.
+
+3) Command Channel: No Tailscale Required
+3.1 Core requirement
+
+Customers must not need Tailscale. All control must work via outbound connections from their instance.
+
+Implement one of:
+
+Outbound WebSocket from sensor/bridge to backend (preferred)
+
+Long-poll GET /commands (acceptable for MVP)
+
+3.2 Commands API
+
+Backend creates commands; sensor/bridge consumes.
+
+POST /commands
+
+Create a command:
+
+type: chat_message | run_skill | pause_instance | kill_switch | disable_skill | approve_action
+
+payload
+
+correlation_id
+
+expires_at
+
+GET /commands/poll?instance_id=...&since=...
+
+For sensor/bridge
+
+POST /commands/ack
+
+Sensor/bridge acknowledges:
+
+received / started / completed / failed
+
+error details (redacted)
+
+3.3 Chat message execution
+
+Flow:
+
+App → POST /chat/send
+
+Backend stores user msg, generates routing_plan
+
+Backend enqueues command(s) to instance:
+
+run_skill with params OR chat_message to agent
+
+Sensor/bridge receives, forwards to OpenClaw
+
+Responses come back as:
+
+POST /chat/receive (agent response)
+
+and/or POST /ingest events (structured outputs)
+
+Backend pushes “new message available” (no content) → app fetches
+
+4) Human-in-the-Loop Approvals (Security + Trust Moat)
+4.1 Approval request object
+
+When agent attempts sensitive actions, sensor/bridge must create an approval request:
+
+Examples:
+
+sending email to multiple recipients
+
+accessing sensitive directories
+
+executing shell commands
+
+contacting new/untrusted domains
+
+exporting large data
+
+Approval request schema:
+
+{
+  "approval_id": "uuid",
+  "instance_id": "uuid",
+  "skill": "name",
+  "action": "send_email|exec_shell|access_sensitive_path|new_domain|bulk_export",
+  "summary": "Skill wants to send 12 emails",
+  "risk_level": "warning|critical",
+  "options": ["allow_once", "allow_always", "deny"],
+  "expires_at": "iso8601",
+  "evidence": { "recipient_count": 12 }
+}
+4.2 UX in Chat
+
+Approval shows as a chat card with buttons:
+
+Allow once
+
+Always allow
+
+Deny
+
+Backend forwards decision as approve_action command.
+
+5) Security Intel Integration (VirusTotal + SkillShield + Red Council)
+
+You already have:
+
+Alerts list (All/Critical/Warning)
+
+Skill trust list (Trusted vs Untrusted/Unknown)
+
+Detector settings with required detectors (New Domain, Shell Spawned, Secret Pattern required)
+
+Extend with three intel sources.
+
+5.1 VirusTotal integration (threat intel signal)
+
+Use VirusTotal as a reputation/supply-chain scanning signal, not a replacement for runtime monitoring.
+
+What to do
+
+For each installed skill package / artifact:
+
+compute hash (SHA-256)
+
+query VirusTotal reputation / verdict if permitted
+
+Store:
+
+vt_verdict: clean|suspicious|malicious|unknown
+
+vt_score: int|null
+
+vt_last_checked_at
+
+Alert rules
+
+vt_verdict == malicious → Critical alert + recommend disable + kill switch
+
+vt_verdict == suspicious → Warning alert + recommend restrict
+
+verdict changes from clean→suspicious/malicious → Critical/Warning alert
+
+UI
+
+Skill row shows “VirusTotal: Clean / Suspicious / Malicious”
+
+Alert detail shows source “VirusTotal”
+
+Note: Never upload user secrets; only scan skill artifacts/hashes.
+
+5.2 SkillShield integration (skill reputation + findings)
+
+Use SkillShield as:
+
+trust score (0–100)
+
+finding categories mapped to your detector taxonomy
+
+Store:
+
+skillshield_score
+
+skillshield_findings[]
+
+skillshield_report_url
+
+skillshield_last_checked_at
+
+Alert rules:
+
+score drop >= 15 → Warning
+
+score drop >= 30 or new high severity finding → Critical
+
+new findings hash → Info
+
+UI:
+
+Show “SkillShield: 82/100” badge + “View report”
+
+Include findings as observed behaviors
+
+5.3 Red Council integration (attack pattern packs + canaries)
+
+Use Red Council in two ways:
+
+A) Offline test corpus (MVP)
+
+ship curated pattern packs as JSON/YAML in backend resources
+
+classify into categories:
+
+prompt_injection
+
+secret_exfiltration
+
+tool_abuse
+
+data_poisoning_signals
+
+B) Canary checks (Pro / optional)
+
+periodic safe probes in sandbox mode
+
+if response matches exfiltration/jailbreak patterns → Critical alert
+
+UI:
+
+Detector settings adds optional detectors:
+
+“Canary: Prompt injection”
+
+“Canary: Secret exfiltration”
+
+Alerts show source “Red Council Canary”
+
+6) Unified Risk Scoring & Trust Status
+
+Compute a single skill_risk_score and trust_status per skill using:
+
+runtime telemetry (domains, shell, secrets)
+
+VirusTotal verdict
+
+SkillShield score/findings
+
+Red Council canary results
+
+Suggested simple scoring (MVP):
+
+Start at 100
+
+Subtract:
+
+-60 if VT malicious
+
+-30 if VT suspicious
+
+-(80 - skillshield_score) * 0.5 (cap 40)
+
+-25 if shell spawned unexpectedly
+
+-25 if secret pattern detected
+
+-15 if new domain + no allowlist
+
+-40 if canary exfiltration hit
+
+Trust status:
+
+80–100: Trusted
+
+50–79: Unknown
+
+20–49: Risky
+
+<20 or VT malicious: Blocked
+
+Auto-policy (optional):
+
+If Blocked → backend recommends disable and surfaces Kill Switch CTA.
+
+7) Privacy & Safety Requirements (must enforce)
+
+No PII in push notifications (only IDs)
+
+Aggressive redaction of secrets/keys in logs and stored evidence
+
+Do not store full URLs with query strings by default
+
+Store metadata (counts/domains) rather than raw payloads
+
+Retention defaults (7–30 days) configurable
+
+All commands + approvals must be audited (who, when, what)
+
+8) API Endpoints (FastAPI)
+Chat / conversation
+
+POST /chat/send
+
+GET /chat/thread/{thread_id}
+
+POST /chat/receive (from instance)
+
+GET /chat/threads
+
+POST /chat/attach_context (optional helper)
+
+Commands
+
+POST /commands
+
+GET /commands/poll
+
+POST /commands/ack
+
+Skills / intel
+
+GET /skills (includes vt + skillshield fields)
+
+POST /skills/{id}/rescan_intel
+
+Alerts
+
+GET /alerts (filter by source runtime|virustotal|skillshield|redcouncil)
+
+GET /alerts/{id}
+
+9) Acceptance Criteria
+
+After pairing, user can type in Chat and get routed execution without picking agents manually.
+
+Routing plan is visible in UI (“Routed to …”) and logged server-side.
+
+Responses render as rich cards when structured output exists.
+
+Tool transparency strip shows tools/domains used (metadata only).
+
+Approvals appear in chat and can stop sensitive actions.
+
+Security tab shows VT + SkillShield + Red Council-derived alerts and trust status.
