@@ -66,6 +66,15 @@ final class InboxViewModel: ObservableObject {
 
             // Cache fetched events in background
             cache.cacheEvents(response.events)
+
+            // Update widget with latest event
+            if let latest = response.events.first {
+                WidgetDataService.update(
+                    alertCount: 0,
+                    lastEvent: (title: latest.title, severity: latest.severity.rawValue, time: latest.timestamp),
+                    instanceHealth: selectedInstance?.health.rawValue ?? "unknown"
+                )
+            }
         } catch {
             isOffline = true
             // If we have cached data, show it; otherwise show error
@@ -136,6 +145,7 @@ final class InboxViewModel: ObservableObject {
     // MARK: - Filter Change
 
     func applyFilter(_ filter: InboxFilter) async {
+        Haptics.selection()
         selectedFilter = filter
         nextCursor = nil
         await loadInitial()
@@ -161,6 +171,7 @@ final class InboxViewModel: ObservableObject {
     // MARK: - Scroll to New Items
 
     func scrolledToTop() {
+        Haptics.selection()
         hasNewItems = false
     }
 

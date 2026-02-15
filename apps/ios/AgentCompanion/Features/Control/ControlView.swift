@@ -275,10 +275,12 @@ struct ControlView: View {
                 case .stopping:
                     ProgressView()
                         .controlSize(.small)
+                        .accessibilityLabel(String(localized: "Stopping"))
 
                 case .completed:
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
+                        .accessibilityLabel(String(localized: "Completed"))
                 }
             }
 
@@ -301,6 +303,8 @@ struct ControlView: View {
         .padding(Space.md)
         .background(Color(.tertiarySystemFill))
         .clipShape(RoundedRectangle(cornerRadius: Radii.button))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(run.skillName) by \(run.agentName), \(Int(run.progress * 100))% complete")
     }
 
     // MARK: - Quick Actions
@@ -445,7 +449,14 @@ struct ControlView: View {
         subtitle: LocalizedStringKey? = nil,
         isOn: Binding<Bool>
     ) -> some View {
-        HStack(spacing: Space.md) {
+        let hapticBinding = Binding(
+            get: { isOn.wrappedValue },
+            set: { newValue in
+                Haptics.selection()
+                isOn.wrappedValue = newValue
+            }
+        )
+        return HStack(spacing: Space.md) {
             Image(systemName: icon)
                 .font(Typography.body)
                 .foregroundStyle(.tint)
@@ -464,7 +475,7 @@ struct ControlView: View {
 
             Spacer()
 
-            Toggle("", isOn: isOn)
+            Toggle("", isOn: hapticBinding)
                 .labelsHidden()
         }
         .padding(.vertical, Space.sm)

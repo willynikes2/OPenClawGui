@@ -78,6 +78,7 @@ struct AgentCardView: View {
         .accessibilityLabel(accessibilityDescription)
         .accessibilityAddTraits(.isButton)
         .contentShape(Rectangle())
+        .cardInsertionAnimation()
     }
 
     @ViewBuilder

@@ -13,6 +13,7 @@ struct InboxView: View {
     @State private var isSearching = false
     @State private var scrolledPastTop = false
     @Namespace private var topAnchor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
@@ -35,6 +36,7 @@ struct InboxView: View {
 
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        Haptics.selection()
                         withAnimation { isSearching.toggle() }
                     } label: {
                         Image(systemName: "magnifyingglass")
@@ -255,8 +257,8 @@ struct InboxView: View {
                     .elevation(Elevation.floating)
             }
             .padding(.top, Space.sm)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .animation(.spring(response: 0.3), value: viewModel.hasNewItems)
+            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            .animation(reduceMotion ? .none : .spring(response: 0.3), value: viewModel.hasNewItems)
             .accessibilityLabel(String(localized: "Scroll to new events"))
         }
     }

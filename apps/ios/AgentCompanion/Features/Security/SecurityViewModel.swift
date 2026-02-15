@@ -101,6 +101,12 @@ final class SecurityViewModel: ObservableObject {
             }
             // In production: fetch alerts and skills from API
             loadState = .loaded
+
+            // Update widget with alert count
+            WidgetDataService.update(
+                alertCount: alertsToday,
+                instanceHealth: selectedInstance?.health.rawValue ?? "unknown"
+            )
         } catch {
             loadState = .error(error.localizedDescription)
         }

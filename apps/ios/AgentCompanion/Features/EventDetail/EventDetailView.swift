@@ -127,6 +127,7 @@ struct EventDetailView: View {
         .padding(.vertical, Space.xs)
         .background(Color(.tertiarySystemFill))
         .clipShape(Capsule())
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Content

@@ -19,6 +19,7 @@ final class EventDetailViewModel: ObservableObject {
 
     private let api = APIService.shared
     private let synthesizer = AVSpeechSynthesizer()
+    private var speechDelegate: SpeechDelegate?
 
     enum LoadState {
         case loaded, loadingRaw, errorRaw(String)
@@ -26,6 +27,13 @@ final class EventDetailViewModel: ObservableObject {
 
     init(event: AgentEvent) {
         self.event = event
+        let delegate = SpeechDelegate { [weak self] in
+            Task { @MainActor in
+                self?.isSpeaking = false
+            }
+        }
+        self.speechDelegate = delegate
+        self.synthesizer.delegate = delegate
     }
 
     // MARK: - Load Full Detail (with decrypted body_raw)
@@ -49,6 +57,7 @@ final class EventDetailViewModel: ObservableObject {
         if isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
             isSpeaking = false
+            Haptics.selection()
             return
         }
 
@@ -58,6 +67,7 @@ final class EventDetailViewModel: ObservableObject {
         utterance.voice = AVSpeechSynthesisVoice(language: Locale.current.language.languageCode?.identifier ?? "en")
         synthesizer.speak(utterance)
         isSpeaking = true
+        Haptics.success()
     }
 
     func stopSpeaking() {
@@ -67,15 +77,19 @@ final class EventDetailViewModel: ObservableObject {
 
     private func buildSpeechText() -> String {
         var parts: [String] = []
-        parts.append("\(event.severity.accessibilityLabel) event from \(event.skillName).")
+        parts.append("\(event.severity.accessibilityLabel) event from \(event.skillName)")
         parts.append(event.title)
 
         if let structured = event.bodyStructuredJSON {
-            for (key, value) in structured {
+            for (key, value) in structured.sorted(by: { $0.key < $1.key }) {
                 parts.append("\(key): \(value.value)")
             }
         } else if let raw = event.bodyRaw {
             parts.append(raw)
+        }
+
+        if let tags = event.tags, !tags.isEmpty {
+            parts.append("Tags: \(tags.joined(separator: ", "))")
         }
 
         return parts.joined(separator: ". ")
@@ -105,5 +119,24 @@ final class EventDetailViewModel: ObservableObject {
         guard let json = event.bodyStructuredJSON else { return [] }
         return json.map { (key: $0.key, value: String(describing: $0.value.value)) }
             .sorted { $0.key < $1.key }
+    }
+}
+
+// MARK: - Speech Delegate
+
+/// Delegate that notifies when speech finishes so isSpeaking resets automatically.
+private final class SpeechDelegate: NSObject, AVSpeechSynthesizerDelegate {
+    let onFinish: () -> Void
+
+    init(onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        onFinish()
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        onFinish()
     }
 }

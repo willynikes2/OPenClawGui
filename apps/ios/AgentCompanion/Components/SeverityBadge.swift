@@ -21,6 +21,7 @@ struct SeverityBadge: View {
         .clipShape(Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(severity.accessibilityLabel)
+        .badgeAppearanceAnimation()
     }
 }
 

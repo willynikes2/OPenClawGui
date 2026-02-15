@@ -422,6 +422,10 @@ struct SecurityView: View {
                 ))
                 .labelsHidden()
                 .disabled(detector.isRequired)
+                .accessibilityLabel(detector.isRequired
+                    ? String(localized: "\(detector.name), required, always enabled")
+                    : String(localized: "\(detector.name), \(detector.isEnabled ? "enabled" : "disabled")")
+                )
             }
 
             // Sensitivity picker
