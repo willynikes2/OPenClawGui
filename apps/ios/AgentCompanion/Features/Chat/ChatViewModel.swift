@@ -106,6 +106,28 @@ final class ChatViewModel: ObservableObject {
         sendState = .idle
     }
 
+    // MARK: - Approval Decisions
+
+    func decideApproval(approvalId: UUID, decision: String) async {
+        do {
+            _ = try await api.decideApproval(approvalId: approvalId, decision: decision)
+
+            if decision == "deny" {
+                Haptics.destructive()
+            } else {
+                Haptics.warning()
+            }
+
+            // Refresh thread to show updated approval status
+            if let threadId = activeThreadId {
+                await loadThread(threadId)
+            }
+        } catch {
+            sendState = .error(error.localizedDescription)
+            Haptics.warning()
+        }
+    }
+
     // MARK: - Polling for Responses
 
     func pollForResponses() async {

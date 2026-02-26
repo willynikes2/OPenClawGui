@@ -5,6 +5,7 @@ import SwiftUI
 /// Layout:
 /// - Messages list: scrollable, newest at bottom
 /// - Each message: bubble with sender icon, content, timestamp
+/// - Approval requests render as ApprovalCardView with action buttons
 /// - Bottom: text input bar with send button
 /// - Polls for new responses every 5 seconds while active
 struct ChatThreadView: View {
@@ -34,7 +35,9 @@ struct ChatThreadView: View {
             ScrollView {
                 LazyVStack(spacing: Space.sm) {
                     ForEach(viewModel.activeMessages) { message in
-                        MessageBubble(message: message)
+                        MessageBubble(message: message, onApprovalDecide: { approvalId, decision in
+                            Task { await viewModel.decideApproval(approvalId: approvalId, decision: decision) }
+                        })
                             .id(message.id)
                     }
 
@@ -117,6 +120,7 @@ struct ChatThreadView: View {
 
 private struct MessageBubble: View {
     let message: ChatMessage
+    var onApprovalDecide: ((UUID, String) -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.sm) {
@@ -158,13 +162,60 @@ private struct MessageBubble: View {
 
     @ViewBuilder
     private var bubbleContent: some View {
-        if message.messageType == .systemMessage {
+        if message.messageType == .approvalRequest, let structured = message.structuredJson {
+            approvalBubble(structured)
+        } else if message.messageType == .systemMessage {
             systemBubble
         } else if let structured = message.structuredJson, !structured.isEmpty {
             structuredBubble(structured)
         } else {
             textBubble
         }
+    }
+
+    @ViewBuilder
+    private func approvalBubble(_ data: [String: AnyCodable]) -> some View {
+        let approvalIdStr = data["approval_id"]?.value as? String ?? ""
+        let approvalId = UUID(uuidString: approvalIdStr) ?? UUID()
+        let skillName = data["skill_name"]?.value as? String ?? "Unknown"
+        let actionStr = data["action"]?.value as? String ?? "exec_shell"
+        let riskStr = data["risk_level"]?.value as? String ?? "warning"
+        let statusStr = data["status"]?.value as? String ?? "pending"
+        let decisionStr = data["decision"]?.value as? String
+        let expiresStr = data["expires_at"]?.value as? String ?? ""
+
+        let action = ApprovalActionType(rawValue: actionStr) ?? .execShell
+        let riskLevel = ApprovalRiskLevel(rawValue: riskStr) ?? .warning
+        let approvalStatus = ApprovalStatus(rawValue: statusStr) ?? .pending
+
+        let formatter = ISO8601DateFormatter()
+        let expiresAt = formatter.date(from: expiresStr) ?? Date()
+
+        // Build evidence dict without the metadata keys
+        var evidence: [String: AnyCodable] = [:]
+        let metaKeys: Set<String> = ["approval_id", "skill_name", "action", "risk_level", "options", "expires_at", "status", "decision"]
+        if let evidenceData = data["evidence"]?.value as? [String: AnyCodable] {
+            evidence = evidenceData
+        } else {
+            for (key, val) in data where !metaKeys.contains(key) {
+                evidence[key] = val
+            }
+        }
+
+        ApprovalCardView(
+            approvalId: approvalId,
+            skillName: skillName,
+            action: action,
+            summary: message.content ?? "Approval requested",
+            riskLevel: riskLevel,
+            evidence: evidence.isEmpty ? nil : evidence,
+            status: approvalStatus,
+            decision: decisionStr,
+            expiresAt: expiresAt,
+            onDecide: { decision in
+                onApprovalDecide?(approvalId, decision)
+            }
+        )
     }
 
     private var textBubble: some View {

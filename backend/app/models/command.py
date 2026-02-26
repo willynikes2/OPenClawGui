@@ -17,6 +17,7 @@ class CommandType(str, PyEnum):
     test_run = "test_run"
     chat_message = "chat_message"
     run_skill = "run_skill"
+    approve_action = "approve_action"
 
 
 class CommandStatus(str, PyEnum):

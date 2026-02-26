@@ -431,6 +431,114 @@ class CompanionBridge:
         return f"Unknown chat command type: {cmd_type}"
 
     # ------------------------------------------------------------------
+    # Approvals — request human approval for sensitive actions
+    # ------------------------------------------------------------------
+
+    # Actions that require approval
+    SENSITIVE_ACTIONS = {
+        "send_email",
+        "exec_shell",
+        "access_sensitive_path",
+        "new_domain",
+        "bulk_export",
+    }
+
+    def create_approval_request(
+        self,
+        *,
+        skill_name: str,
+        action: str,
+        summary: str,
+        risk_level: str = "warning",
+        evidence: dict[str, Any] | None = None,
+        thread_id: str | None = None,
+        expires_in_seconds: int = 300,
+    ) -> dict | None:
+        """Create an approval request for a sensitive action.
+
+        The backend will inject this into the chat thread as an approval card
+        that the user can Allow/Deny from the mobile app.
+
+        Args:
+            skill_name: Name of the skill attempting the action.
+            action: One of: send_email, exec_shell, access_sensitive_path,
+                    new_domain, bulk_export.
+            summary: Human-readable description of what the skill wants to do.
+            risk_level: "warning" or "critical".
+            evidence: Supporting evidence dict (e.g. recipient_count, path, domain).
+            thread_id: Optional chat thread to display the approval card in.
+            expires_in_seconds: How long until the request expires (default 5 min).
+        """
+        if action not in self.SENSITIVE_ACTIONS:
+            raise ValueError(
+                f"action must be one of {self.SENSITIVE_ACTIONS}, got {action!r}"
+            )
+
+        url = f"{self.config.backend_url}/approvals"
+        body: dict[str, Any] = {
+            "skill_name": skill_name,
+            "action": action,
+            "summary": summary,
+            "risk_level": risk_level,
+            "expires_in_seconds": expires_in_seconds,
+        }
+        if evidence is not None:
+            body["evidence"] = evidence
+        if thread_id is not None:
+            body["thread_id"] = thread_id
+
+        headers = self._hmac_headers("")
+        headers["Content-Type"] = "application/json"
+
+        try:
+            resp = self._client.post(url, json=body, headers=headers)
+            if resp.status_code == 201:
+                data = resp.json()
+                logger.info(
+                    "Approval request created: %s (id=%s, action=%s)",
+                    skill_name, data.get("id"), action,
+                )
+                return data
+            logger.warning("Create approval failed: %d %s", resp.status_code, resp.text)
+        except httpx.HTTPError as exc:
+            logger.warning("Create approval HTTP error: %s", exc)
+
+        return None
+
+    def handle_approve_action(self, command: dict) -> str | None:
+        """Handle an approve_action command received from the backend.
+
+        Called when a user has decided on an approval request (allow/deny).
+        Subclass and override to implement actual approval enforcement.
+        Default logs the decision.
+
+        Returns a result message for command acknowledgement.
+        """
+        payload = command.get("payload", {})
+        approval_id = payload.get("approval_id")
+        skill_name = payload.get("skill_name", "unknown")
+        action = payload.get("action", "unknown")
+        decision = payload.get("decision", "unknown")
+        decided_by = payload.get("decided_by")
+
+        logger.info(
+            "Approval decision received: skill=%s action=%s decision=%s "
+            "approval_id=%s decided_by=%s",
+            skill_name, action, decision, approval_id, decided_by,
+        )
+
+        if decision == "deny":
+            return f"Action '{action}' by skill '{skill_name}' was denied"
+        if decision in ("allow_once", "allow_always"):
+            return f"Action '{action}' by skill '{skill_name}' was approved ({decision})"
+
+        return f"Unknown decision: {decision}"
+
+    def requires_approval(self, action: str) -> bool:
+        """Check if an action requires human approval."""
+        return action in self.SENSITIVE_ACTIONS
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 

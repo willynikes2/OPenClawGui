@@ -195,6 +195,25 @@ final class APIService: ObservableObject {
         return try await authenticatedPost(url: url, body: body)
     }
 
+    // MARK: - Approvals
+
+    func fetchApprovals(instanceId: UUID, status: String? = nil, limit: Int = 20) async throws -> [ApprovalRequest] {
+        var components = URLComponents(url: baseURL.appendingPathComponent("approvals"), resolvingAgainstBaseURL: false)!
+        var queryItems: [URLQueryItem] = [
+            .init(name: "instance_id", value: instanceId.uuidString),
+            .init(name: "limit", value: String(limit)),
+        ]
+        if let status { queryItems.append(.init(name: "status", value: status)) }
+        components.queryItems = queryItems
+        return try await authenticatedRequest(url: components.url!)
+    }
+
+    func decideApproval(approvalId: UUID, decision: String) async throws -> ApprovalRequest {
+        let url = baseURL.appendingPathComponent("approvals/\(approvalId.uuidString)/decide")
+        let body = ApprovalDecideAPIRequest(decision: decision)
+        return try await authenticatedPost(url: url, body: body)
+    }
+
     // MARK: - Networking
 
     private func authenticatedRequest<T: Decodable>(url: URL) async throws -> T {
@@ -245,6 +264,10 @@ final class APIService: ObservableObject {
 }
 
 // MARK: - Request Types
+
+struct ApprovalDecideAPIRequest: Codable {
+    let decision: String
+}
 
 struct ContainmentRequest: Codable {
     let reason: String

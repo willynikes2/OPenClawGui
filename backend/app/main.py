@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import alerts, auth, chat, commands, events, ingest, instances
+from app.api import alerts, approvals, auth, chat, commands, events, ingest, instances
 
 app = FastAPI(title="AgentCompanion API", version="0.1.0")
 
@@ -11,6 +11,7 @@ app.include_router(events.router, prefix="/api/v1/events", tags=["events"])
 app.include_router(alerts.router, prefix="/api/v1", tags=["alerts", "security"])
 app.include_router(commands.router, prefix="/api/v1", tags=["commands"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+app.include_router(approvals.router, prefix="/api/v1", tags=["approvals"])
 
 
 @app.get("/health")
